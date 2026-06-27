@@ -13,7 +13,7 @@ export function UserDashboard({ newKey }: { newKey?: string }) {
       <div className="ak-tabs">
         {(['keys', 'usage', 'topups'] as const).map((t) => (
           <div key={t} className={`ak-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-            {t === 'keys' ? '我的 Key' : t === 'usage' ? '用量明细' : '充值申请'}
+            {t === 'keys' ? '我的 Key' : t === 'usage' ? '用量明细' : '充值'}
           </div>
         ))}
       </div>
@@ -116,48 +116,53 @@ function Usage() {
 }
 
 function Topups() {
-  const state = useAsync(() => portal.topups(), [])
-  const [amount, setAmount] = useState(50)
-  const [reason, setReason] = useState('')
+  const state = useAsync(() => portal.payments(), [])
+  const enabled = useAsync(() => portal.rechargeEnabled(), [])
+  const [amount, setAmount] = useState(10)
+  const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
-  async function submit() {
-    setMsg(null)
+  async function go() {
+    setBusy(true); setMsg(null)
     try {
-      await portal.submitTopup(amount, reason)
-      setMsg('已提交，等待管理员审核')
-      state.reload()
+      const r = await portal.recharge(amount)
+      window.location.href = r.url           // 跳转 Polar 托管结账页
     } catch (e: any) {
-      setMsg(e?.message || '失败')
+      setMsg(e?.message || '失败'); setBusy(false)
     }
   }
+  const off = enabled.data && enabled.data.enabled === false
   return (
     <>
-      <Card title="申请加额度 / 充值" actions={
+      <Card title="充值（信用卡 / 支付宝 / 微信）">
         <div className="ak-row">
+          {[10, 50, 100].map((v) => (
+            <button key={v} className={`ak-btn ${amount === v ? 'primary' : ''}`} onClick={() => setAmount(v)}>${v}</button>
+          ))}
           <input className="ak-input" type="number" value={amount} min={1}
             onChange={(e) => setAmount(Number(e.target.value))} style={{ width: 100 }} />
           <span className="ak-muted">USD</span>
-          <input className="ak-input" placeholder="理由（可选）" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <button className="ak-btn primary" onClick={submit}>提交</button>
+          <button className="ak-btn primary" disabled={busy || !!off} onClick={go}>{busy ? '跳转中…' : '去支付'}</button>
         </div>
-      }>
-        {msg && <div className="ak-ok">{msg}</div>}
+        {off && <div className="ak-muted" style={{ marginTop: 8 }}>充值暂未开通</div>}
+        {msg && <div className="ak-err">{msg}</div>}
+        <div className="ak-muted" style={{ marginTop: 10, fontSize: 12 }}>
+          支付由 Polar 处理，成功后余额自动到账（可能有几秒延迟）。
+        </div>
       </Card>
-      <Card title="我的申请">
+      <Card title="充值记录">
         <Async state={state}>{(rows: any[]) => (
           <table className="ak-table">
-            <thead><tr><th>时间</th><th>金额</th><th>理由</th><th>状态</th></tr></thead>
+            <thead><tr><th>时间</th><th>金额</th><th>状态</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
-                  <td>{fmtUsd(r.requested_micro_usd)}</td>
-                  <td className="ak-muted">{r.reason || '—'}</td>
-                  <td><Pill kind={r.status === 'approved' ? 'ok' : r.status === 'rejected' ? 'bad' : 'warn'}>{r.status}</Pill></td>
+                  <td>{fmtUsd(r.amount_micro_usd)}</td>
+                  <td><Pill kind={r.status === 'paid' ? 'ok' : 'warn'}>{r.status === 'paid' ? '已到账' : '待支付'}</Pill></td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={4} className="ak-muted">暂无申请</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={3} className="ak-muted">暂无记录</td></tr>}
             </tbody>
           </table>
         )}</Async>

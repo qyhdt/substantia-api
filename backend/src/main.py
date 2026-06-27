@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from config.version import APP_NAME
-from controller import admin_apikey, auth, claude, example, gateway, health, portal
+from controller import admin_apikey, auth, claude, example, gateway, health, portal, webhooks
 from frame.base_api_route import BaseAPIRoute
 from frame.error_handler import register_exception_handlers
 from utils.fastapi_request_context import RequestContextMiddleware
@@ -141,3 +141,4 @@ app.include_router(portal.router, prefix="/api")
 app.include_router(admin_apikey.router, prefix="/api")
 app.include_router(gateway.router, prefix="/api")   # /api/v1/messages
 app.include_router(gateway.router)                  # /v1/messages（裸路径，给 SDK base_url 用）
+app.include_router(webhooks.router, prefix="/api")  # /api/webhooks/polar

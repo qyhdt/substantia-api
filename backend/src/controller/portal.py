@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from security.dependencies import current_user, require_access_token
 from services.apikey import to_micro, usd
 from services.apikey import keys as keys_svc
+from services.apikey import payments as payments_svc
 from services.apikey import topups as topups_svc
 from services.apikey import usage as usage_svc
 from services.apikey import users as users_svc
@@ -32,6 +33,10 @@ class CreateKeyIn(BaseModel):
 class TopupIn(BaseModel):
     amount_usd: float = Field(gt=0, le=100000)
     reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class RechargeIn(BaseModel):
+    amount_usd: float = Field(ge=1, le=10000)
 
 
 @router.get("/me", summary="账户 + 余额概览")
@@ -78,6 +83,24 @@ async def my_topups(user: dict = Depends(current_user)):
     return await topups_svc.list_for_user(_uid(user))
 
 
-@router.post("/topups", summary="提交加额度/充值申请")
+@router.post("/topups", summary="提交加额度/充值申请（admin 审核，备用）")
 async def submit_topup(payload: TopupIn, user: dict = Depends(current_user)):
     return await topups_svc.submit(_uid(user), to_micro(payload.amount_usd), payload.reason)
+
+
+# ---------- 自助充值（Polar）----------
+@router.get("/recharge/enabled", summary="充值渠道是否可用")
+async def recharge_enabled():
+    return {"enabled": payments_svc.configured(), "provider": "polar"}
+
+
+@router.post("/recharge", summary="自助充值：创建 Polar 结账，返回跳转 URL")
+async def recharge(payload: RechargeIn, user: dict = Depends(current_user)):
+    u = await users_svc.get_user(_uid(user))
+    email = (u or {}).get("email")
+    return await payments_svc.create_checkout(_uid(user), email, payload.amount_usd)
+
+
+@router.get("/payments", summary="我的充值订单")
+async def my_payments(user: dict = Depends(current_user)):
+    return await payments_svc.list_for_user(_uid(user))

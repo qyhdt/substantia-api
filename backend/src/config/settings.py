@@ -88,6 +88,15 @@ class Settings(BaseSettings):
     # 取列表请用 settings.admin_emails_list（List[str]）
     ADMIN_EMAILS: str = ""
 
+    # ---------- 充值（Polar.sh，海外 MoR，收美元）----------
+    # 复用 digital-platform 的 Polar 账号；值放 .env。留空 = 未接入，充值接口返回 503。
+    POLAR_ACCESS_TOKEN: str = ""       # Organization Access Token
+    POLAR_PRODUCT_ID: str = ""         # 一个 pay-what-you-want 产品 id
+    POLAR_WEBHOOK_SECRET: str = ""     # Webhook signing secret（whsec_…）
+    POLAR_SANDBOX: bool = False        # true=sandbox-api.polar.sh
+    # 支付成功后跳回的站内地址
+    PAYMENT_RETURN_URL: str = "https://dev.substantia.ai/"
+
     # ---------- APIKey 分发（下游令牌 / 计费 / 网关）----------
     # 新用户注册自动赠送的余额（微美元，$1 = 1_000_000）。默认 $20。
     AK_TRIAL_GRANT_MICRO_USD: int = 20_000_000

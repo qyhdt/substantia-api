@@ -44,6 +44,10 @@ export const portal = {
   usage: () => api.get('/portal/usage'),
   topups: () => api.get('/portal/topups'),
   submitTopup: (amount_usd: number, reason?: string) => api.post('/portal/topups', { amount_usd, reason }),
+  // 自助充值（Polar）
+  rechargeEnabled: () => api.get('/portal/recharge/enabled'),
+  recharge: (amount_usd: number) => api.post('/portal/recharge', { amount_usd }),
+  payments: () => api.get('/portal/payments'),
 }
 
 // ---------- 管理端 ----------
