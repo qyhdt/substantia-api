@@ -1,11 +1,12 @@
 import { useI18n, LangToggle } from '../i18n'
 
-// 官网价（每百万 token，美元）。展示时同时给出 ×50% 的实付价。
+// Anthropic 官网价（每百万 token，美元）。展示时同时给出 ×50% 的实付价。
 const DISCOUNT = 0.5
 const PRICES = [
-  { model: 'claude-opus-4', in: 15, out: 75 },
-  { model: 'claude-sonnet-4', in: 3, out: 15 },
-  { model: 'claude-haiku-4', in: 0.8, out: 4 },
+  { model: 'claude-opus-4-8', in: 5, out: 25 },
+  { model: 'claude-sonnet-4-6', in: 3, out: 15 },
+  { model: 'claude-haiku-4-5', in: 1, out: 5 },
+  { model: 'claude-fable-5', in: 10, out: 50 },
 ]
 const usd = (n: number) => `$${n.toFixed(2)}`
 

@@ -4,7 +4,7 @@ import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 
 const curlFor = (key: string) => `curl https://api.substantia.ai/v1/messages \\
   -H "x-api-key: ${key}" -H "content-type: application/json" \\
-  -d '{"model":"claude-sonnet-4","messages":[{"role":"user","content":"hello"}]}'`
+  -d '{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}'`
 
 const GATEWAY_HINT = curlFor('<你的 sk-key>')
 

@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     # 新用户注册自动赠送的余额（微美元，$1 = 1_000_000）。默认 $20。
     AK_TRIAL_GRANT_MICRO_USD: int = 20_000_000
     # 网关请求未显式带 model 时的默认模型（用于计价与 claude --model）
-    AK_DEFAULT_MODEL: str = "claude-sonnet-4"
+    AK_DEFAULT_MODEL: str = "claude-sonnet-4-6"
     # 余额不足（≤0）时是否拒绝网关请求
     AK_ENFORCE_BALANCE: bool = True
 
