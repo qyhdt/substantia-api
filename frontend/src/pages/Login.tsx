@@ -1,8 +1,14 @@
 import { useState } from 'react'
 import { auth } from '../api'
+import { useI18n, LangToggle } from '../i18n'
 
-export function Login({ onAuthed }: { onAuthed: (user: any, firstKey?: string) => void }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+export function Login({ initialMode = 'login', onAuthed, onBack }: {
+  initialMode?: 'login' | 'register'
+  onAuthed: (user: any, firstKey?: string) => void
+  onBack: () => void
+}) {
+  const { t } = useI18n()
+  const [mode, setMode] = useState<'login' | 'register'>(initialMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -21,7 +27,7 @@ export function Login({ onAuthed }: { onAuthed: (user: any, firstKey?: string) =
         onAuthed(r.user)
       }
     } catch (err: any) {
-      setError(err?.message || '失败')
+      setError(err?.message || t('failed'))
     } finally {
       setBusy(false)
     }
@@ -29,24 +35,28 @@ export function Login({ onAuthed }: { onAuthed: (user: any, firstKey?: string) =
 
   return (
     <div className="ak-auth">
+      <div className="ak-row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+        <a onClick={onBack} style={{ cursor: 'pointer' }} className="ak-muted">{t('back_home')}</a>
+        <LangToggle />
+      </div>
       <div className="ak-card">
-        <h2>Substantia <span style={{ color: 'var(--accent)' }}>API</span></h2>
-        <p className="ak-muted">{mode === 'login' ? '登录' : '注册即送 $20 试用额度'}</p>
+        <h2>Substantia <span style={{ color: 'var(--accent)' }}>{t('brand_tag')}</span></h2>
+        <p className="ak-muted">{mode === 'login' ? t('login') : t('free_trial_note')}</p>
         <form onSubmit={submit}>
-          <input className="ak-input" type="email" placeholder="邮箱" value={email}
+          <input className="ak-input" type="email" placeholder={t('email')} value={email}
             onChange={(e) => setEmail(e.target.value)} required />
-          <input className="ak-input" type="password" placeholder="密码（≥6 位）" value={password}
+          <input className="ak-input" type="password" placeholder={t('password')} value={password}
             onChange={(e) => setPassword(e.target.value)} required minLength={6} />
           {error && <div className="ak-err">{error}</div>}
           <button className="ak-btn primary" style={{ width: '100%' }} disabled={busy}>
-            {busy ? '…' : mode === 'login' ? '登录' : '注册'}
+            {busy ? t('submitting') : mode === 'login' ? t('login') : t('register')}
           </button>
         </form>
         <p className="ak-muted" style={{ marginTop: 14 }}>
-          {mode === 'login' ? '没有账号？' : '已有账号？'}{' '}
+          {mode === 'login' ? t('no_account') : t('has_account')}{' '}
           <a onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null) }}
             style={{ cursor: 'pointer' }}>
-            {mode === 'login' ? '注册' : '去登录'}
+            {mode === 'login' ? t('to_register') : t('to_login')}
           </a>
         </p>
       </div>

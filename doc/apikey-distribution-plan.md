@@ -4,7 +4,12 @@
 > 约定：**以后每次改动都要回来更新「实施里程碑」勾选状态和「变更记录」。**
 > 姊妹文档：容器/订阅运行层见 [`claude-docker-plan.md`](./claude-docker-plan.md)（由容器团队负责，本计划只**消费与管理**，不实现容器本身）。
 
-最后更新：2026-06-27 · 状态：**后端 + 前端已实现并测试通过（32 后端测试绿）；待真实 slot 镜像联调 docker exec**
+最后更新：2026-06-27 · 状态：**✅ 已上线远端并端到端联调通过（真 Opus + 真实计费扣款）**
+
+远端 `43.155.195.115` 全栈跑起：`substantia-api-{db,backend,web}` 三容器 Up（compose 在 `devops/deploy/`）。
+真实链路验证：注册→sk-key→`/v1/messages`→路由 sub-a→`docker exec claude-slot-sub-a`→真 Opus 4.8→
+解析 token→**按实际命中模型 `claude-opus-4-8` 计价**→扣余额（一次 pong 扣 $0.317）→记 usage 日志。
+剩最后一公里：edge-nginx 把域名反代到 `substantia-api-web`/`-backend`（归运维/容器侧配）。
 
 **实现要点（2026-06-27）**：容器团队已落地 `services/claude/*`（slot 池 + HRW 路由 + 容器编排 +
 `exec_claude` + 健康探针）与 `controller/claude.py`（`/api/claude/chat` + `/api/admin/claude/*` slot/容器管理）。
@@ -251,6 +256,7 @@
 ---
 
 ## 11. 变更记录（changelog）
+- **2026-06-27** · **远端上线 + 端到端联调通过**。在 `43.155.195.115` 用 `devops/deploy` 的 docker-compose 起 db+backend+web 三容器（backend 以 root 挂 docker.sock + 同路径挂 `/var/lib/substantia/claude`，故能 exec 兄弟容器 `claude-slot-sub-a`）。真实跑通 `/v1/messages`→docker exec→真 Opus 4.8→计费扣款。**计费修复**：`runner` 改为从 `claude --output-format json` 的 `modelUsage` 解析**实际命中模型**（`claude-opus-4-8`）作为计价依据（订阅档实际模型 ≠ 请求别名）；新增 `_cli_model` 把规范名/别名归一成 CLI 认的 `opus/sonnet/haiku`；migration `0002` 补真实模型名定价。验证：一次 pong（in 21122 / out 4 token）精确扣 317130 micro=$0.317。**遗留**：edge-nginx 域名反代、cache_read token 单独低价、限流执行、OpenAI 兼容（P2）。
 - **2026-06-27** · **实现完成（后端+前端）**。发现容器团队已落地 `services/claude/*` 引擎 + `controller/claude.py`，遂重定边界：删掉自建 `ak_credentials/ak_containers`，slot 即上游凭据，本系统消费引擎。落地：migration（5 表）、`security/api_key_auth`、`services/apikey/{__init__,pricing,users,keys,topups,usage,runner}`、`controller/{auth,portal,admin_apikey,gateway}`、前端（api 客户端 + Login + User/Admin 仪表盘 + ui.css）。`runner.py` 跑 `claude --output-format json` 拿 token 计费；sub→apikey = slot 池故障转移；统一 `_safe_uid` 路由一致。测试 32 绿（10 单测 + 3 e2e + 容器团队 19），真实 uvicorn cookie 鉴权冒烟通过。**遗留**：真实 slot 镜像联调、限流执行、usage 批量写、OpenAI 兼容（均 A6/P2）。
 - **2026-06-27** · 用户拍板剩余 4 项：计费=token 且**逐模型定价**（新增 `ak_model_prices`，按命中模型计价，降级后按实际模型价）；**自助注册**；**注册自动送 $20 余额**（改用户 `balance` 模型，原"申请单"改为 `ak_topup_requests` 充值申请走 admin 审核）；**按 user_id 路由**。同步 §3 表结构、§4 计费步、§5 增 `/auth/*` 与 `/admin/model-prices`、§6/§7/§10。设计确认(A0)完成，待容器团队对齐 exec 细节后进 A1。
 - **2026-06-27** · 用户拍板三项：投递 = `docker exec`（HTTPS→后端 exec→返回）；sub→apikey 降级在网关/后端层（exec 重试注入 `ANTHROPIC_*` env）；下游只做 Anthropic 兼容（OpenAI 延后）。同步 §4/§5.3/§8/§10/A5。待确认收敛到 4 项（计费单位/用户来源/审核策略/sticky 维度）。
