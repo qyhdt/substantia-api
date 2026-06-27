@@ -197,4 +197,8 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 - **2026-06-27** · M3 代码完成：`services/claude/docker_manager.py`（slot 为单位幂等编排 + `exec_claude` + `ensure_all_enabled`）+ 7 个纯逻辑单测（共 14 全绿）。加 `docker` 依赖与 `CLAUDE_*` 配置。记录多用户/单容器的转录隔离取舍（M6 加固）。容器实测待 Docker 镜像就绪。
 - **2026-06-27** · M4+M5 代码完成：`health.py`（探针/保活/`probe_loop`）、`exec_claude` 即时故障转移、`store.py`（slot 文件持久化）、`controller/claude.py`（用户 `/claude/chat` + admin slot CRUD/健康/容器）、`main.py` 启动钩子（ensure + probe_loop）。+5 单测（共 19 全绿）。剩余：远端 build 镜像 + 配 slot + 实测；SSE 流式与 admin relogin UI 后续按需。
   - 旁注：用户在 settings 增了 `AK_*`（下游 APIKey 分发/计费/网关）配置 —— 属另一条线，本 plan 暂不覆盖。
-- **2026-06-27** · 远端落地 sub-a：用户交互登录烘出 `qyhdt/private:claude-loggedin-sub-a`；远端 clone 仓库、建 `/var/lib/substantia/claude`（owner uid1000）、写 `slots.json`；按 manager 同参起 `claude-slot-sub-a` 实测端到端通过（真 Opus、永远存活、凭据 host 持久+轮换写回）。修复 relogin 误删跨项目容器的 bug。**剩余：登录更多 sub（sub-b…）+ 部署 substantia backend 让 `/api/claude/chat` 真正对外。**
+- **2026-06-27** · 远端落地 sub-a：用户交互登录烘出 `qyhdt/private:claude-loggedin-sub-a`；远端 clone 仓库、建 `/var/lib/substantia/claude`（owner uid1000）、写 `slots.json`；按 manager 同参起 `claude-slot-sub-a` 实测端到端通过（真 Opus、永远存活、凭据 host 持久+轮换写回）。修复 relogin 误删跨项目容器的 bug。镜像推送到 Docker Hub 私有仓库。
+- **2026-06-27** · **整栈部署上线**：`devops/deploy/docker-compose.yml`（backend+db+web，接 `substantia_net`，backend 挂 docker.sock+workspace 以 root 跑）。远端 build/up，迁移生效（5 张 AK 表），backend 容器内 `exec_claude` 端到端通（真 Opus）。前端多阶段镜像（vite build→nginx）。
+  - **域名/edge**：DNS 加 `dev.substantia.ai`（`api` 已有）；certbot webroot 签 `api+dev` 证书（自动续期）；edge-nginx 追加 3 个 server 块（`api/dev` :80 ACME + `api` :443→backend + `dev` :443→web+/api 反代），每步 `nginx -t`+reload+备份。
+  - **上线验证**：`https://api.substantia.ai/api/health` ok、`/v1/messages` 无 token→401（网关在工作）；`https://dev.substantia.ai` 出前端、`/api` 反代通。未误伤同机其它站（xiaozhi 200；apex 502 是 substantia-**ai** 项目自身栈 7h 前 Exited，与本次无关）。
+  - **剩余**：登录更多 sub（sub-b…）扩容；portal 真实注册→建 key→调 `api` 全链路走查；SSE 流式。
