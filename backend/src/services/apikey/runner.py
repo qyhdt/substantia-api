@@ -59,6 +59,23 @@ class RunnerResult:
         return self.exit_code == 0
 
 
+_CLI_ALIASES = ("opus", "sonnet", "haiku")
+
+
+def _cli_model(model: str) -> Optional[str]:
+    """把请求模型名归一成 claude CLI 认的别名（opus/sonnet/haiku）。
+    'sonnet' → 'sonnet'；'claude-sonnet-4' → 'sonnet'；未知 → None（不传 --model，用账号默认）。"""
+    if not model:
+        return None
+    m = model.lower()
+    if m in _CLI_ALIASES:
+        return m
+    for a in _CLI_ALIASES:
+        if a in m:
+            return a
+    return None
+
+
 def _billed_model(slot: Slot, requested_model: str) -> str:
     """计价用的「实际命中模型」：api_key slot 用其注入的 ANTHROPIC_MODEL；订阅 slot 用请求模型。"""
     if slot.type == SlotType.API_KEY:
@@ -89,7 +106,16 @@ def _parse_usage(output: str) -> Optional[Dict[str, Any]]:
     text = obj.get("result")
     if text is None:
         text = obj.get("text") or obj.get("content") or ""
-    return {"text": text if isinstance(text, str) else json.dumps(text), "in": in_tok, "out": out_tok}
+    # 实际命中模型：claude `--output-format json` 的 modelUsage 给出真实跑的模型（带版本，
+    # 如 claude-opus-4-8）。取成本最高者为主模型，作为**计价依据**（订阅档真实模型 ≠ 请求别名）。
+    actual_model = None
+    mu = obj.get("modelUsage")
+    if isinstance(mu, dict) and mu:
+        actual_model = max(mu.items(), key=lambda kv: (kv[1] or {}).get("costUSD", 0) or 0)[0]
+    return {
+        "text": text if isinstance(text, str) else json.dumps(text),
+        "in": in_tok, "out": out_tok, "model": actual_model,
+    }
 
 
 def _estimate_tokens(s: str) -> int:
@@ -107,8 +133,10 @@ def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResul
     container_wd = f"/workspace/users/{user_id}"
 
     cmd = ["claude", "--dangerously-skip-permissions", "--output-format", "json"]
-    if slot.type == SlotType.SUBSCRIPTION and model:
-        cmd += ["--model", model]   # 订阅档可指定模型；api_key 档模型由注入的 env 决定
+    if slot.type == SlotType.SUBSCRIPTION:
+        cli = _cli_model(model)     # claude CLI 只认 opus/sonnet/haiku 别名；规范名映射过去
+        if cli:
+            cmd += ["--model", cli]  # 未知别名则不传，用账号默认模型
     cmd += ["-p", prompt]
 
     c = dm._client().containers.get(info["name"])
@@ -128,9 +156,11 @@ def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResul
         text = out
         in_tok, out_tok = _estimate_tokens(prompt), _estimate_tokens(out)
 
+    # 计价模型：优先 claude 实际命中模型（modelUsage 解析），回退到 slot/请求推断
+    billed_model = (parsed and parsed.get("model")) or _billed_model(slot, model)
     return RunnerResult(
         slot_id=slot.id, slot_type=slot.type.value,
-        model=_billed_model(slot, model), text=text,
+        model=billed_model, text=text,
         prompt_tokens=in_tok, completion_tokens=out_tok,
         exit_code=res.exit_code, auth_failed=auth_failed, attempts=1, estimated=estimated,
     )

@@ -41,6 +41,14 @@ services:
     networks: [substantia_net]
     depends_on: [db]
 
+  web:
+    build:
+      context: ../../frontend
+    image: substantia-api-web:latest
+    container_name: substantia-api-web
+    restart: unless-stopped
+    networks: [substantia_net]
+
 volumes:
   substantia_api_pgdata:
 
