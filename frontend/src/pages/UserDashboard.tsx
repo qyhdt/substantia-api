@@ -8,21 +8,22 @@ const curlFor = (key: string) => `curl https://api.substantia.ai/v1/messages \\
 
 const GATEWAY_HINT = curlFor('<你的 sk-key>')
 
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text; document.body.appendChild(ta); ta.select()
+    try { document.execCommand('copy') } catch { /* ignore */ }
+    document.body.removeChild(ta)
+  }
+}
+
 function CopyBtn({ text, label = '复制' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false)
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // 兜底：clipboard 不可用时用临时 textarea
-      const ta = document.createElement('textarea')
-      ta.value = text; document.body.appendChild(ta); ta.select()
-      try { document.execCommand('copy') } catch { /* ignore */ }
-      document.body.removeChild(ta)
-    }
-    setDone(true); setTimeout(() => setDone(false), 1500)
-  }
-  return <button className="ak-btn" onClick={copy}>{done ? '已复制 ✓' : label}</button>
+  return <button className="ak-btn" onClick={async () => {
+    await copyText(text); setDone(true); setTimeout(() => setDone(false), 1500)
+  }}>{done ? '已复制 ✓' : label}</button>
 }
 
 export function UserDashboard({ newKey }: { newKey?: string }) {
@@ -48,6 +49,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
   const [banner, setBanner] = useState<string | null>(justIssued || null)
   const [name, setName] = useState('default')
   const [busy, setBusy] = useState(false)
+  const [pick, setPick] = useState<any[] | null>(null)   // 多 key 时弹窗候选
+  const [hint, setHint] = useState<string | null>(null)
 
   async function create() {
     setBusy(true)
@@ -62,6 +65,24 @@ function Keys({ justIssued }: { justIssued?: string }) {
   async function disable(id: number) {
     await portal.disableKey(id)
     state.reload()
+  }
+
+  // 一键复制可直接运行的测试 curl：自动填入真实 key。多个可用 key 时弹窗选。
+  async function copyTestCurl() {
+    const keys: any[] = (state.data as any[]) || []
+    const usable = keys.filter((k) => k.key_plain && k.status === 'active')
+    if (usable.length === 0) {
+      setHint('没有可自动填入的 key —— 旧 key 不保存明文，请先「生成」一个新 key')
+      setTimeout(() => setHint(null), 4000)
+      return
+    }
+    if (usable.length === 1) {
+      await copyText(curlFor(usable[0].key_plain))
+      setHint('已复制测试 curl（含 ' + usable[0].name + '）✓')
+      setTimeout(() => setHint(null), 2500)
+      return
+    }
+    setPick(usable)  // 多个 → 弹窗选
   }
 
   return (
@@ -86,12 +107,33 @@ function Keys({ justIssued }: { justIssued?: string }) {
           <button className="ak-btn primary" onClick={create} disabled={busy}>生成</button>
         </div>
       }>
-        <p className="ak-muted">把 key 当作 Anthropic 的 <code>x-api-key</code> 用，base_url 指向本网关。生成 key 后上方会给出可直接运行的测试 curl：</p>
-        <div className="ak-row" style={{ justifyContent: 'flex-end', marginBottom: 6 }}>
-          <CopyBtn text={GATEWAY_HINT} label="复制示例" />
+        <p className="ak-muted">把 key 当作 Anthropic 的 <code>x-api-key</code> 用，base_url 指向本网关：</p>
+        <div className="ak-row" style={{ justifyContent: 'flex-end', marginBottom: 6, gap: 8 }}>
+          {hint && <span className="ak-ok" style={{ margin: 0 }}>{hint}</span>}
+          <button className="ak-btn primary" onClick={copyTestCurl}>一键复制测试 curl（自动填入 key）</button>
         </div>
         <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{GATEWAY_HINT}</pre>
       </Card>
+
+      {pick && (
+        <div className="ak-modal-bg" onClick={() => setPick(null)}>
+          <div className="ak-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>选择一个 Key 生成测试 curl</h3>
+            {pick.map((k) => (
+              <button key={k.id} className="ak-btn" style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 8 }}
+                onClick={async () => {
+                  await copyText(curlFor(k.key_plain))
+                  setPick(null)
+                  setHint('已复制测试 curl（含 ' + k.name + '）✓')
+                  setTimeout(() => setHint(null), 2500)
+                }}>
+                {k.name} · <span className="ak-mono">{k.key_prefix}</span>
+              </button>
+            ))}
+            <button className="ak-btn" onClick={() => setPick(null)}>取消</button>
+          </div>
+        </div>
+      )}
 
       <Card title="我的 Key 列表">
         <Async state={state}>{(keys: any[]) => (

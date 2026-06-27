@@ -150,6 +150,16 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .lp-off { color: var(--muted); text-decoration: line-through; font-size: 12px; }
 .lp-now { color: var(--accent-2); font-size: 14px; }
 
+/* 弹窗 */
+.ak-modal-bg {
+  position: fixed; inset: 0; background: rgba(16,24,40,.45);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+}
+.ak-modal {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px; width: 100%; max-width: 460px; box-shadow: 0 10px 30px rgba(16,24,40,.18);
+}
+
 .lp-footer {
   border-top: 1px solid var(--border); margin-top: 40px; padding: 28px 20px;
   text-align: center; color: var(--muted); font-size: 13px;

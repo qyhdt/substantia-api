@@ -42,12 +42,12 @@ async def issue_key(
     am = json.dumps(allowed_models) if allowed_models else None
     sql = """
         INSERT INTO ak_api_keys
-            (user_id, name, key_prefix, key_hash, allowed_models,
+            (user_id, name, key_prefix, key_hash, key_plain, allowed_models,
              quota_cap_micro_usd, rate_limit_rpm, expires_at)
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
         RETURNING *
     """
-    args = (user_id, name, prefix, key_hash, am, quota_cap_micro_usd, rate_limit_rpm, expires_at)
+    args = (user_id, name, prefix, key_hash, plain, am, quota_cap_micro_usd, rate_limit_rpm, expires_at)
     row = await (conn.fetchrow(sql, *args) if conn else db_util.fetchrow(sql, *args))
     return {"plain": plain, "key": _public(dict(row))}
 
