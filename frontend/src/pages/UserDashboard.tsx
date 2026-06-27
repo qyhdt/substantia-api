@@ -2,9 +2,28 @@ import { useState } from 'react'
 import { fmtUsd, portal } from '../api'
 import { Async, Card, Pill, useAsync } from '../components/common'
 
-const GATEWAY_HINT = `curl https://api.substantia.ai/v1/messages \\
-  -H "x-api-key: <你的 sk-key>" -H "content-type: application/json" \\
+const curlFor = (key: string) => `curl https://api.substantia.ai/v1/messages \\
+  -H "x-api-key: ${key}" -H "content-type: application/json" \\
   -d '{"model":"claude-sonnet-4","messages":[{"role":"user","content":"hello"}]}'`
+
+const GATEWAY_HINT = curlFor('<你的 sk-key>')
+
+function CopyBtn({ text, label = '复制' }: { text: string; label?: string }) {
+  const [done, setDone] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // 兜底：clipboard 不可用时用临时 textarea
+      const ta = document.createElement('textarea')
+      ta.value = text; document.body.appendChild(ta); ta.select()
+      try { document.execCommand('copy') } catch { /* ignore */ }
+      document.body.removeChild(ta)
+    }
+    setDone(true); setTimeout(() => setDone(false), 1500)
+  }
+  return <button className="ak-btn" onClick={copy}>{done ? '已复制 ✓' : label}</button>
+}
 
 export function UserDashboard({ newKey }: { newKey?: string }) {
   const [tab, setTab] = useState<'keys' | 'usage' | 'topups'>('keys')
@@ -49,8 +68,16 @@ function Keys({ justIssued }: { justIssued?: string }) {
     <>
       {banner && (
         <div className="ak-keybanner">
-          <b>新 Key（仅显示一次，请妥善保存）：</b>
+          <div className="ak-row" style={{ justifyContent: 'space-between' }}>
+            <b>新 Key（仅显示一次，请妥善保存）：</b>
+            <CopyBtn text={banner} label="复制 Key" />
+          </div>
           <div className="ak-mono" style={{ marginTop: 6 }}>{banner}</div>
+          <div className="ak-row" style={{ justifyContent: 'space-between', marginTop: 12 }}>
+            <b>测试 curl（已填入你的 key，可直接运行）：</b>
+            <CopyBtn text={curlFor(banner)} label="复制 curl" />
+          </div>
+          <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: '6px 0 0' }}>{curlFor(banner)}</pre>
         </div>
       )}
       <Card title="新建 Key" actions={
@@ -59,7 +86,10 @@ function Keys({ justIssued }: { justIssued?: string }) {
           <button className="ak-btn primary" onClick={create} disabled={busy}>生成</button>
         </div>
       }>
-        <p className="ak-muted">把 key 当作 Anthropic 的 <code>x-api-key</code> 用，base_url 指向本网关：</p>
+        <p className="ak-muted">把 key 当作 Anthropic 的 <code>x-api-key</code> 用，base_url 指向本网关。生成 key 后上方会给出可直接运行的测试 curl：</p>
+        <div className="ak-row" style={{ justifyContent: 'flex-end', marginBottom: 6 }}>
+          <CopyBtn text={GATEWAY_HINT} label="复制示例" />
+        </div>
         <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{GATEWAY_HINT}</pre>
       </Card>
 
