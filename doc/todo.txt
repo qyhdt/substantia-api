@@ -17,4 +17,8 @@
 用户端可以申请apikey
 管理员可以进行分配apikey给用户也可以审核用户申请的key
  管理sub的认证 管理container 管理GLM qianwen chatgpt等apikey
- 总之就是类似oneapi等功能 但是呢 模型我会依赖
+ 总之就是类似oneapi等功能 底层的token来自 claude code的 container
+ 底层架构是：
+ container里面是 claude code ，一切都是sub，如果sub不够了 接的是 apikey 后台可有地方配置
+ 例如 A container 用claude sub 还是apikey。B container 等等
+ 你先要做计划在/Users/yang/Documents/devworkspace/substantia-api/doc

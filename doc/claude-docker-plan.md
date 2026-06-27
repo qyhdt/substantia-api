@@ -4,7 +4,7 @@
 > 约定：**以后每次改动都要回来更新这里的「实施步骤」勾选状态和「变更记录」。**
 > 参考来源：`digital-platform--generator/claude_docker` 与 `backend/src/services/vibe/docker_manager.py`。
 
-最后更新：2026-06-27 · 状态：**拓扑已定（方案 A）· M1 文件移植进行中**
+最后更新：2026-06-27 · 状态：**M2 完成（slot 抽象 + HRW 路由 + 单测）· 下一步 M3 容器编排（需 Docker/远端）**
 
 **已定决策（2026-06-27）**：① 拓扑 = **方案 A**（每 sub 一个容器）；② **保留 api_key slot 接口能力，初期不启用**（池里先只放 subscription slot，GLM/ChatGPT/DeepSeek 以后再加）；③ 部署机 `43.155.195.115`，镜像推**私有仓库**（默认 `qyhdt/private`，可改）。
 
@@ -125,10 +125,12 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 - [ ] build `claude-runner` base 镜像，`run.sh` 跑通 `claude -p`（用临时 api_key 验证镜像本身，不入池）
 - [ ] 烘一个 subscription 预登录镜像，确认订阅档不报 401
 
-### M2 · slot 抽象 + 路由
-- [ ] `backend/src/services/claude/slots.py`：slot 配置模型 + 加载（DB/配置）
-- [ ] `router.py`：HRW 哈希路由（含 weight、unhealthy 剔除），单测覆盖「增删 slot 只搬 ~1/N」
-- [ ] DB migration：`provider_slots`（若走 DB）
+### M2 · slot 抽象 + 路由（✅ 完成）
+- [x] `backend/src/services/claude/slots.py`：`Slot` 模型（subscription/api_key 两型 + 运行时健康态 + `is_routable`/`mark_unhealthy`/`mark_healthy`）
+- [x] `router.py`：加权 **HRW(rendezvous)** 路由（weight 比例分布 + unhealthy 剔除 + sticky）
+- [x] `registry.py`：进程级单例 + `CLAUDE_SLOTS_JSON` 加载 + `configure()` 热更新（reconfigure 保留健康态）
+- [x] `tests/test_claude_router.py`：7 用例全绿 —— sticky / 等权均匀 / 加权比例 / 删 slot 只搬 ~1/N（仅被删 slot 用户动）/ 增 slot ~1/(N+1) / 健康剔除与回流 / 空池抛错
+- [ ] DB 持久化 `provider_slots`：**暂用 env/JSON + `configure()`**，留到 M5 admin 接管时再落 DB
 
 ### M3 · 容器编排（slot 为单位）
 - [ ] `docker_manager.py`（移植改造）：`ensure_slot_container(slot)` 幂等创建/启动
@@ -172,3 +174,4 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 - **2026-06-27** · 初版 plan：确立 slot 池 + HRW 哈希分流 + per-sub 隔离凭据架构；明确「不可热插拔轮换订阅凭据」；列出 M0–M6 步骤。等待拓扑/​slot 清单确认。
 - **2026-06-27** · 用户拍板：拓扑 = 方案 A；初期 slot 池仅 subscription（api_key 保留接口不启用）；部署机 `43.155.195.115` + 私有仓库。M0 完成，进入 M1。
 - **2026-06-27** · M1：移植 `claude_docker` → `devops/claude_docker/`（改路径/打码/加 README + per-slot tag 约定）。镜像 build/push 与远端部署待用户确认后执行。
+- **2026-06-27** · M2 完成：`services/claude/{slots,router,registry}.py` + 7 个单测全绿。加权 HRW 路由，sticky、增删 slot 只搬 ~1/N、健康剔除/回流均验证通过。slot 持久化暂用 env/JSON，DB 落到 M5。
