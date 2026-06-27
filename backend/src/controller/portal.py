@@ -41,10 +41,20 @@ class RechargeIn(BaseModel):
 
 @router.get("/me", summary="账户 + 余额概览")
 async def me(user: dict = Depends(current_user)):
+    from services.apikey.balance import effective_balance, trial_active
     u = await users_svc.get_user(_uid(user))
     if not u:
         raise HTTPException(status_code=404, detail="user not found")
-    return {**u, "balance_usd": usd(u["balance_micro_usd"])}
+    eff = effective_balance(u)
+    active = trial_active(u)
+    return {
+        **u,
+        "paid_micro_usd": u["balance_micro_usd"],   # 实付桶
+        "balance_micro_usd": eff,                   # 有效总额（前端展示）
+        "balance_usd": usd(eff),
+        "trial_active": active,                     # 试用是否有效
+        "trial_usd": usd(u.get("trial_micro_usd") or 0) if active else "$0.0000",
+    }
 
 
 @router.get("/keys", summary="我的 key 列表（脱敏）")

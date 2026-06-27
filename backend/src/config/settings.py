@@ -98,8 +98,12 @@ class Settings(BaseSettings):
     PAYMENT_RETURN_URL: str = "https://dev.substantia.ai/"
 
     # ---------- APIKey 分发（下游令牌 / 计费 / 网关）----------
-    # 新用户注册自动赠送的余额（微美元，$1 = 1_000_000）。默认 $20。
+    # 新用户注册自动赠送的余额（微美元，$1 = 1_000_000）。默认 $20。进「试用桶」。
     AK_TRIAL_GRANT_MICRO_USD: int = 20_000_000
+    # 试用额度有效期（天）。默认 90（3 个月）。
+    AK_TRIAL_EXPIRE_DAYS: int = 90
+    # 充值达到该金额（微美元）即把试用额度转为永久有效。默认 $1。
+    AK_TRIAL_ACTIVATE_MIN_MICRO_USD: int = 1_000_000
     # 网关请求未显式带 model 时的默认模型（用于计价与 claude --model）
     AK_DEFAULT_MODEL: str = "claude-sonnet-4-6"
     # 余额不足（≤0）时是否拒绝网关请求

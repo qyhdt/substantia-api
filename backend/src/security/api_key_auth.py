@@ -53,7 +53,9 @@ async def authenticate_key(request: Request) -> Dict[str, Any]:
     row = await db_util.fetchrow(
         """
         SELECT k.*, u.email AS user_email, u.role AS user_role,
-               u.status AS user_status, u.balance_micro_usd AS user_balance
+               u.status AS user_status, u.balance_micro_usd AS user_balance,
+               u.trial_micro_usd AS user_trial, u.trial_expires_at AS user_trial_expires_at,
+               u.trial_permanent AS user_trial_permanent
         FROM ak_api_keys k
         JOIN ak_users u ON u.id = k.user_id
         WHERE k.key_hash = $1
@@ -81,5 +83,8 @@ async def authenticate_key(request: Request) -> Dict[str, Any]:
         "email": key["user_email"],
         "role": key["user_role"],
         "balance_micro_usd": key["user_balance"],
+        "trial_micro_usd": key["user_trial"],
+        "trial_expires_at": key["user_trial_expires_at"],
+        "trial_permanent": key["user_trial_permanent"],
     }
     return {"key": key, "user": user}

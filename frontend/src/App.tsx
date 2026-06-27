@@ -7,7 +7,10 @@ import { Login } from './pages/Login'
 import { UserDashboard } from './pages/UserDashboard'
 import { AdminDashboard } from './pages/AdminDashboard'
 
-type User = { id: number; email: string; role: string; balance_micro_usd?: number }
+type User = {
+  id: number; email: string; role: string; balance_micro_usd?: number
+  trial_active?: boolean; trial_permanent?: boolean; trial_expires_at?: string; trial_usd?: string
+}
 
 export default function App() {
   const { t } = useI18n()
@@ -85,6 +88,14 @@ export default function App() {
           <button className="ak-btn" onClick={logout}>{t('logout')}</button>
         </div>
       </div>
+
+      {user.trial_active && !user.trial_permanent && (
+        <div className="ak-keybanner" style={{ background: '#eff6ff', borderColor: 'var(--accent)' }}>
+          🎁 你有试用额度 <b>{user.trial_usd}</b>，有效期至{' '}
+          <b>{user.trial_expires_at ? new Date(user.trial_expires_at).toLocaleDateString() : '—'}</b>
+          。期间充值任意金额（≥ $1），试用额度即<b>永久有效</b>。
+        </div>
+      )}
 
       {view === 'admin' && isAdmin ? <AdminDashboard /> : <UserDashboard newKey={firstKey} />}
     </div>

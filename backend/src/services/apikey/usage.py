@@ -17,9 +17,11 @@ from utils.pm_logger import get_app_logger
 log = get_app_logger()
 
 
-def precheck(key: Dict[str, Any], user_balance_micro: int, model: str) -> None:
-    """网关请求前置校验：余额>0、key 未超封顶、模型在白名单。失败抛 402/403。"""
-    if settings.AK_ENFORCE_BALANCE and (user_balance_micro or 0) <= 0:
+def precheck(key: Dict[str, Any], user: Dict[str, Any], model: str) -> None:
+    """网关请求前置校验：有效余额>0、key 未超封顶、模型在白名单。失败抛 402/403。
+    user 为含 balance/trial 字段的 dict；有效余额 = 实付 + 有效试用。"""
+    from services.apikey.balance import effective_balance
+    if settings.AK_ENFORCE_BALANCE and effective_balance(user) <= 0:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="insufficient balance")
 
     cap = key.get("quota_cap_micro_usd")
@@ -57,9 +59,20 @@ async def record_and_charge(
 
     async with db_util.transaction() as conn:
         if cost > 0:
+            # 先扣试用桶（有效时），再扣实付桶。行级锁防并发扣费。
+            from services.apikey.balance import trial_active
+            urow = await conn.fetchrow(
+                "SELECT balance_micro_usd, trial_micro_usd, trial_expires_at, trial_permanent "
+                "FROM ak_users WHERE id = $1 FOR UPDATE",
+                user_id,
+            )
+            avail_trial = int(urow["trial_micro_usd"]) if (urow and trial_active(dict(urow))) else 0
+            from_trial = min(cost, avail_trial)
+            from_paid = cost - from_trial
             await conn.execute(
-                "UPDATE ak_users SET balance_micro_usd = balance_micro_usd - $1 WHERE id = $2",
-                cost, user_id,
+                "UPDATE ak_users SET trial_micro_usd = trial_micro_usd - $1, "
+                "balance_micro_usd = balance_micro_usd - $2 WHERE id = $3",
+                from_trial, from_paid, user_id,
             )
             await conn.execute(
                 "UPDATE ak_api_keys SET spent_micro_usd = spent_micro_usd + $1, last_used_at = now() "

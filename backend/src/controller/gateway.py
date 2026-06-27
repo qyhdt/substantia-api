@@ -129,8 +129,8 @@ async def messages(payload: MessagesIn, request: Request, auth: dict = Depends(a
     key, user = auth["key"], auth["user"]
     model = payload.model or settings.AK_DEFAULT_MODEL
 
-    # 前置校验：余额 / key 封顶 / 模型白名单
-    usage_svc.precheck(key, user["balance_micro_usd"], model)
+    # 前置校验：有效余额（实付+有效试用）/ key 封顶 / 模型白名单
+    usage_svc.precheck(key, user, model)
 
     prompt = _build_prompt(payload)
     if not prompt:

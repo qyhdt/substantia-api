@@ -44,14 +44,18 @@ async def register(email: str, password: str) -> Dict[str, Any]:
     role = "admin" if email in {e.lower() for e in settings.admin_emails_list} else "user"
     pwd_hash = hash_password(password)
     trial = settings.AK_TRIAL_GRANT_MICRO_USD
+    trial_days = settings.AK_TRIAL_EXPIRE_DAYS
 
     async with db_util.transaction() as conn:
+        # 注册赠送进「试用桶」，有效期 trial_days 天；实付桶（balance）初始 0
         urow = await conn.fetchrow(
             """
-            INSERT INTO ak_users (email, password_hash, role, balance_micro_usd)
-            VALUES ($1, $2, $3, $4) RETURNING *
+            INSERT INTO ak_users (email, password_hash, role, balance_micro_usd,
+                                  trial_micro_usd, trial_expires_at)
+            VALUES ($1, $2, $3, 0, $4, now() + make_interval(days => $5))
+            RETURNING *
             """,
-            email, pwd_hash, role, trial,
+            email, pwd_hash, role, trial, int(trial_days),
         )
         user = _public(dict(urow))
         issued = await keys_svc.issue_key(user["id"], name="default", conn=conn)

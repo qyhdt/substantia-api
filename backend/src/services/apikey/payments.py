@@ -156,6 +156,16 @@ async def handle_webhook(headers, raw: bytes) -> dict:
         return {"already": True, "out_trade_no": otn}  # 并发竞态，别人已处理
 
     new_bal = await users_svc.adjust_balance(int(row["user_id"]), int(amount))
+
+    # 充值达标且试用仍在有效期内 → 把剩余试用额度转为永久有效
+    if int(amount) >= settings.AK_TRIAL_ACTIVATE_MIN_MICRO_USD:
+        await db_util.execute(
+            "UPDATE ak_users SET trial_permanent = true "
+            "WHERE id = $1 AND trial_micro_usd > 0 AND NOT trial_permanent "
+            "AND trial_expires_at IS NOT NULL AND trial_expires_at > now()",
+            int(row["user_id"]),
+        )
+
     log.info("polar recharge ok user=%s otn=%s +%d micro, balance=%d",
              row["user_id"], otn, int(amount), new_bal)
     return {"granted": True, "out_trade_no": otn, "balance_micro_usd": new_bal}
