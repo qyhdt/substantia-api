@@ -19,11 +19,15 @@ export default function App() {
   const [authView, setAuthView] = useState<'landing' | 'auth'>('landing')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
 
-  // 启动时用 cookie 探一下是否已登录
+  // 启动时只在「本浏览器登录过」时才探会话；匿名访客直接进落地页，不打 /portal/me（避免 401 噪音）
   useEffect(() => {
+    if (localStorage.getItem('sa_session') !== '1') {
+      setBooting(false)
+      return
+    }
     portal.me()
       .then((me) => setUser(me))
-      .catch(() => setUser(null))
+      .catch(() => { setUser(null); localStorage.removeItem('sa_session') })
       .finally(() => setBooting(false))
   }, [])
 
@@ -42,6 +46,7 @@ export default function App() {
 
   async function logout() {
     await auth.logout().catch(() => {})
+    localStorage.removeItem('sa_session')
     setUser(null)
     setFirstKey(undefined)
     setAuthView('landing')
@@ -57,7 +62,7 @@ export default function App() {
       <Login
         initialMode={authMode}
         onBack={() => setAuthView('landing')}
-        onAuthed={(u, key) => { setUser(u); setFirstKey(key); setView('user') }}
+        onAuthed={(u, key) => { localStorage.setItem('sa_session', '1'); setUser(u); setFirstKey(key); setView('user') }}
       />
     )
   }
