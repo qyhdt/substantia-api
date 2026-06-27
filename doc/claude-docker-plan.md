@@ -4,7 +4,7 @@
 > 约定：**以后每次改动都要回来更新这里的「实施步骤」勾选状态和「变更记录」。**
 > 参考来源：`digital-platform--generator/claude_docker` 与 `backend/src/services/vibe/docker_manager.py`。
 
-最后更新：2026-06-27 · 状态：**M3 代码完成（slot 容器编排 + exec，14 单测全绿）· 待 Docker 环境实测，下一步 M4 保活/健康 或 M5 API**
+最后更新：2026-06-27 · 状态：**M0–M5 代码全部完成（19 单测全绿）· 仅剩在 `43.155.195.115` 上 build 镜像 + 配 slot + 实测**
 
 **已定决策（2026-06-27）**：① 拓扑 = **方案 A**（每 sub 一个容器）；② **保留 api_key slot 接口能力，初期不启用**（池里先只放 subscription slot，GLM/ChatGPT/DeepSeek 以后再加）；③ 部署机 `43.155.195.115`，镜像推**私有仓库**（默认 `qyhdt/private`，可改）。
 
@@ -147,15 +147,22 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 > 同一 slot 内的用户转录在容器内**互相可读**（非访问控制级隔离）——记为 M6 加固项（如需强隔离，
 > 可改 per-user 子容器或 `CLAUDE_CONFIG_DIR` 方案）。跨 slot 天然隔离。
 
-### M4 · 保活 + 健康 + 故障转移
-- [ ] per-slot probe_loop：保活订阅凭据（harvest/seed 改 per-slot）
-- [ ] 健康探针：401/限额 → 标 unhealthy + cooldown，HRW 自动绕过
-- [ ] 恢复探活：cooldown 后重探，healthy 则自动回流
+### M4 · 保活 + 健康 + 故障转移（✅ 代码完成）
+- [x] `services/claude/health.py`：`probe_slot`（真跑极简 claude 验活，顺带触发订阅 OAuth 续期=保活）+ `probe_and_update`（回写健康态）+ `probe_loop`（后台周期任务）
+- [x] 即时故障转移：`exec_claude` 撞 401/鉴权失败 → 标 slot unhealthy + cooldown → 下一轮 `route()` 自动绕过（在 docker_manager 内，非鉴权失败不重试）
+- [x] 恢复：cooldown 过后 `is_routable` 乐观放行，probe_loop 探到健康即 `mark_healthy` 回流
+- [x] 凭据续期：slot 的 `.claude` 目录直接挂 `/workspace/.claude`，claude 就地写回 host（rename 在挂载目录内安全），**无需跨用户 harvest**
+- [x] `tests/test_claude_failover.py`：故障转移 / 鉴权检测 / 非鉴权不重试 / 全挂抛错（19 单测全绿）
 
-### M5 · API + Admin
-- [ ] 对外接口：`POST /api/claude/chat`（或 SSE 流式，复用 `frame/sse.py`）
-- [ ] admin：slot 列表 CRUD、健康看板、relogin 入口
-- [ ] devops：compose / 部署脚本、多 sub 凭据下发流程
+### M5 · API + Admin（✅ 代码完成）
+- [x] 对外：`POST /api/claude/chat`（鉴权，路由→exec→返回；503=无可用 slot，502=exec 失败）
+- [x] admin：`GET/PUT/DELETE /api/admin/claude/slots`（CRUD + 健康看板，文件持久化 `slots.json`）
+- [x] admin 容器：`GET /containers`、`POST /containers/ensure`、`POST /slots/{id}/probe`
+- [x] 启动钩子：docker 可达且有 slot 时 `ensure_all_enabled` + 起 `probe_loop`；停机 cancel
+- [x] slot 持久化 `store.py`（文件存储，DB 可后续替换；接口不变）
+- [ ] SSE 流式 `/chat`（复用 `frame/sse.py`）—— 后续按需加
+- [ ] devops：compose / 部署脚本、多 sub 凭据下发（待镜像就绪时一起做）
+- [ ] admin relogin 入口（现可手动跑 `relogin-remote.sh`，UI 化后续）
 
 ### M6 · 加固
 - [ ] 资源闸（并发/内存）、`--network` 收紧、容量上限
@@ -185,3 +192,5 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 - **2026-06-27** · M1：移植 `claude_docker` → `devops/claude_docker/`（改路径/打码/加 README + per-slot tag 约定）。镜像 build/push 与远端部署待用户确认后执行。
 - **2026-06-27** · M2 完成：`services/claude/{slots,router,registry}.py` + 7 个单测全绿。加权 HRW 路由，sticky、增删 slot 只搬 ~1/N、健康剔除/回流均验证通过。slot 持久化暂用 env/JSON，DB 落到 M5。
 - **2026-06-27** · M3 代码完成：`services/claude/docker_manager.py`（slot 为单位幂等编排 + `exec_claude` + `ensure_all_enabled`）+ 7 个纯逻辑单测（共 14 全绿）。加 `docker` 依赖与 `CLAUDE_*` 配置。记录多用户/单容器的转录隔离取舍（M6 加固）。容器实测待 Docker 镜像就绪。
+- **2026-06-27** · M4+M5 代码完成：`health.py`（探针/保活/`probe_loop`）、`exec_claude` 即时故障转移、`store.py`（slot 文件持久化）、`controller/claude.py`（用户 `/claude/chat` + admin slot CRUD/健康/容器）、`main.py` 启动钩子（ensure + probe_loop）。+5 单测（共 19 全绿）。剩余：远端 build 镜像 + 配 slot + 实测；SSE 流式与 admin relogin UI 后续按需。
+  - 旁注：用户在 settings 增了 `AK_*`（下游 APIKey 分发/计费/网关）配置 —— 属另一条线，本 plan 暂不覆盖。

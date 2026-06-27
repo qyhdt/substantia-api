@@ -15,7 +15,7 @@ import json
 import threading
 from typing import List, Optional
 
-from config.settings import settings
+from services.claude import store
 from services.claude.router import SlotRouter
 from services.claude.slots import Slot
 
@@ -54,9 +54,14 @@ def get_router() -> SlotRouter:
     if _router is None:
         with _lock:
             if _router is None:
-                slots = load_slots_from_json(settings.CLAUDE_SLOTS_JSON)
-                _router = SlotRouter(slots)
+                _router = SlotRouter(store.load())
     return _router
+
+
+def save_and_reconfigure(slots: List[Slot]) -> SlotRouter:
+    """admin 用：持久化 slot 列表到 store + 重建路由池（保留运行时健康态）。"""
+    store.save(slots)
+    return configure(slots)
 
 
 def reset_for_test() -> None:

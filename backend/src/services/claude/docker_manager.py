@@ -281,28 +281,49 @@ def ensure_all_enabled() -> List[dict]:
 
 
 # ============================================================================
-# 执行
+# 执行 + 鉴权失败检测 + 故障转移
 # ============================================================================
+_AUTH_FAIL_MARKERS = (
+    "401",
+    "invalid authentication",
+    "authentication_error",
+    "unauthorized",
+    "failed to authenticate",
+    "invalid api key",
+    "invalid bearer token",
+    "oauth",
+    "expired",
+)
+
+
+def looks_like_auth_failure(text: str) -> bool:
+    """从 claude 输出里粗判是否鉴权/凭据失败（401 / OAuth 过期 / key 失效）。"""
+    t = (text or "").lower()
+    return any(m in t for m in _AUTH_FAIL_MARKERS)
+
+
 class ClaudeExecResult:
-    def __init__(self, slot_id: str, exit_code: int, output: str):
+    def __init__(self, slot_id: str, exit_code: int, output: str, *, auth_failed: bool = False,
+                 attempts: int = 1):
         self.slot_id = slot_id
         self.exit_code = exit_code
         self.output = output
+        self.auth_failed = auth_failed
+        self.attempts = attempts
+
+    @property
+    def ok(self) -> bool:
+        return self.exit_code == 0
 
     def __repr__(self) -> str:
-        return f"ClaudeExecResult(slot={self.slot_id}, rc={self.exit_code}, out={self.output[:60]!r})"
+        return (f"ClaudeExecResult(slot={self.slot_id}, rc={self.exit_code}, "
+                f"auth_failed={self.auth_failed}, out={self.output[:60]!r})")
 
 
-def exec_claude(user_id: str, prompt: str) -> ClaudeExecResult:
-    """路由 user → slot → ensure 容器 → 在该用户目录里跑 `claude -p <prompt>`。
-
-    prompt 以 argv 形式传入（非 shell 拼接），无注入风险。
-    """
-    assert_safe_id(user_id, "user_id")
-    slot = get_router().route(user_id)            # 无可路由 slot 会抛 NoRoutableSlotError
+def _exec_in_slot(slot: Slot, user_id: str, prompt: str) -> ClaudeExecResult:
+    """在指定 slot 容器里、该用户目录中跑一次 `claude -p`。prompt 走 argv，无 shell 注入。"""
     info = ensure_slot_container(slot)
 
-    # 准备该用户的工作目录（host 侧 mkdir，容器内即 /workspace/users/<uid>）
     wd = user_workdir(slot.id, user_id)
     wd.mkdir(parents=True, exist_ok=True)
     _chown_tree(wd)
@@ -317,5 +338,30 @@ def exec_claude(user_id: str, prompt: str) -> ClaudeExecResult:
         environment={"HOME": "/workspace"},
         demux=False,
     )
-    output = res.output.decode("utf-8", "replace") if isinstance(res.output, bytes) else str(res.output)
-    return ClaudeExecResult(slot.id, res.exit_code, output)
+    out = res.output.decode("utf-8", "replace") if isinstance(res.output, bytes) else str(res.output)
+    auth_failed = res.exit_code != 0 and looks_like_auth_failure(out)
+    return ClaudeExecResult(slot.id, res.exit_code, out, auth_failed=auth_failed)
+
+
+def exec_claude(user_id: str, prompt: str) -> ClaudeExecResult:
+    """路由 user → slot → exec。撞鉴权失败时标该 slot 不健康并改路由到其它健康 slot（故障转移）。
+
+    非鉴权类失败（如用户 prompt 报错）直接返回，不重试（避免无意义重跑）。
+    """
+    assert_safe_id(user_id, "user_id")
+    router = get_router()
+    max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS)
+    last: Optional[ClaudeExecResult] = None
+
+    for attempt in range(1, max_attempts + 1):
+        slot = router.route(user_id)              # 无可路由 slot → NoRoutableSlotError
+        res = _exec_in_slot(slot, user_id, prompt)
+        res.attempts = attempt
+        if not res.auth_failed:
+            return res                            # 成功 / 非鉴权失败：直接返回
+        # 鉴权失败：标该 slot 不健康（从路由剔除），下一轮 route() 自动落到其它健康 slot
+        log.warning("slot %s 鉴权失败，标记不健康并故障转移（第 %d 次）", slot.id, attempt)
+        router.mark_unhealthy(slot.id, settings.CLAUDE_UNHEALTHY_COOLDOWN_SECONDS)
+        last = res
+
+    return last  # 所有尝试都鉴权失败

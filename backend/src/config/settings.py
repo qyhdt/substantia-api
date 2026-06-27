@@ -68,13 +68,33 @@ class Settings(BaseSettings):
     CLAUDE_CONTAINER_CPUS: float = 2.0
     # 单次 claude exec 超时（秒）
     CLAUDE_EXEC_TIMEOUT: int = 600
-    # slot 池配置（JSON 数组）；留空 = 空池，需先配 slot 才能路由
+    # slot 池配置（JSON 数组）；留空 = 空池，需先配 slot 才能路由。仅作初始 seed，admin 改动落到 slots 文件。
     CLAUDE_SLOTS_JSON: str = ""
+    # slot 持久化文件（admin CRUD 写这里）；留空 = <CLAUDE_WORKSPACE_ROOT>/slots.json
+    CLAUDE_SLOTS_FILE: str = ""
+
+    # ---- 健康探针 / 保活 / 故障转移 ----
+    # 启动是否拉起所有 enabled slot 容器 + 起健康探针
+    CLAUDE_PROBE_ENABLED: bool = True
+    # 探针周期（秒）：每隔这么久对每个订阅 slot 真跑一次 claude（顺带触发 OAuth 续期保活 + 验活）
+    CLAUDE_PROBE_INTERVAL_SECONDS: int = 1200
+    # 探针/exec 判定为不健康后，多久内不再路由到它（冷却；过后乐观放行重探）
+    CLAUDE_UNHEALTHY_COOLDOWN_SECONDS: int = 600
+    # exec 撞 401/鉴权失败时，自动改路由到其它健康 slot 的最大尝试次数
+    CLAUDE_EXEC_MAX_ATTEMPTS: int = 3
 
     # ---------- 权限 ----------
     # 拥有 /api/admin/* 权限的用户邮箱白名单（逗号分隔的 CSV 字符串；空 = 没人能用）
     # 取列表请用 settings.admin_emails_list（List[str]）
     ADMIN_EMAILS: str = ""
+
+    # ---------- APIKey 分发（下游令牌 / 计费 / 网关）----------
+    # 新用户注册自动赠送的余额（微美元，$1 = 1_000_000）。默认 $20。
+    AK_TRIAL_GRANT_MICRO_USD: int = 20_000_000
+    # 网关请求未显式带 model 时的默认模型（用于计价与 claude --model）
+    AK_DEFAULT_MODEL: str = "claude-sonnet-4"
+    # 余额不足（≤0）时是否拒绝网关请求
+    AK_ENFORCE_BALANCE: bool = True
 
     # ---------- 派生属性 ----------
     @property

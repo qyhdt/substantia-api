@@ -5,6 +5,7 @@
 或:
     ./startup-local.sh
 """
+import asyncio
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -17,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from config.version import APP_NAME
-from controller import example, health
+from controller import claude, example, health
 from frame.base_api_route import BaseAPIRoute
 from frame.error_handler import register_exception_handlers
 from utils.fastapi_request_context import RequestContextMiddleware
@@ -51,8 +52,32 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("startup: redis warmup failed (will connect on first use): %s", e)
 
+    # Claude slot 容器：docker 可达且有 slot 时，拉起所有 enabled 容器 + 起健康探针（保活）
+    probe_task = None
+    if settings.CLAUDE_PROBE_ENABLED:
+        try:
+            from services.claude import docker_manager as _dm
+            from services.claude import health as _health
+            from services.claude.registry import get_router as _get_router
+            if _get_router().all_slots() and await asyncio.to_thread(_dm.is_docker_reachable):
+                results = await asyncio.to_thread(_dm.ensure_all_enabled)
+                log.info("startup: claude slots ensured: %s", results)
+                probe_task = asyncio.create_task(_health.probe_loop(), name="claude.probe")
+            else:
+                log.info("startup: claude slots skipped (no slot configured or docker unreachable)")
+        except Exception as e:
+            log.warning("startup: claude slots init failed: %s", e)
+
     log.info("startup: ready")
     yield
+
+    # 停健康探针
+    if probe_task is not None:
+        probe_task.cancel()
+        try:
+            await probe_task
+        except Exception:
+            pass
 
     # 关闭外部连接
     try:
@@ -107,3 +132,5 @@ app.include_router(example.router)
 
 app.include_router(health.router, prefix="/api")
 app.include_router(example.router, prefix="/api")
+app.include_router(claude.router, prefix="/api")
+app.include_router(claude.admin_router, prefix="/api")
