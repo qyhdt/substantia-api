@@ -67,7 +67,10 @@ async def create_checkout(user_id: int, email: Optional[str], usd: float) -> dic
         "amount": round(usd * 100),  # 分；product 须配成 pay-what-you-want
         "customer_email": email or None,
         "success_url": settings.PAYMENT_RETURN_URL,
-        "metadata": {"app": "substantia-api", "user_id": str(user_id), "out_trade_no": otn},
+        # ⚠️ 共用 Polar 账号：故意**不放** bare `user_id`。digital-platform 的 webhook 一看到
+        # metadata.user_id 就给它自己的同号 vibe 用户加款（不校验订单归属）。我们只放 out_trade_no，
+        # 本系统 webhook 按订单号查 ak_payments 取 user_id；dp 看到没 user_id 直接忽略 → 互不串。
+        "metadata": {"app": "substantia-api", "out_trade_no": otn, "sa_user_id": str(user_id)},
     }
     headers = {
         "Authorization": f"Bearer {settings.POLAR_ACCESS_TOKEN}",
