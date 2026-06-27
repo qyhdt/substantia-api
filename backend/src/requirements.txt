@@ -13,6 +13,9 @@ pydantic-settings>=2.1
 python-jose[cryptography]>=3.3.0
 bcrypt>=4.1.0
 
+# ===== Claude 容器编排 =====
+docker>=7.1.0
+
 # ===== Optional: Redis =====
 # 不需要时可注释，并删除 utils/redis.py
 redis>=5.0.0

@@ -58,6 +58,19 @@ class Settings(BaseSettings):
     DB_POOL_MAX_SIZE: int = 20
     DB_COMMAND_TIMEOUT: int = 60
 
+    # ---------- Claude 容器（slot 编排）----------
+    # base 镜像（api_key slot 用；订阅 slot 用各自的预登录镜像 slot.image）
+    CLAUDE_BASE_IMAGE: str = "claude-runner"
+    # workspace 根目录：host 上 <root>/<slot_id>/ 挂成容器 /workspace；用户目录在其下 users/<uid>/
+    CLAUDE_WORKSPACE_ROOT: str = "/var/lib/substantia/claude"
+    # 每个 slot 容器的资源上限
+    CLAUDE_CONTAINER_MEMORY: str = "3g"
+    CLAUDE_CONTAINER_CPUS: float = 2.0
+    # 单次 claude exec 超时（秒）
+    CLAUDE_EXEC_TIMEOUT: int = 600
+    # slot 池配置（JSON 数组）；留空 = 空池，需先配 slot 才能路由
+    CLAUDE_SLOTS_JSON: str = ""
+
     # ---------- 权限 ----------
     # 拥有 /api/admin/* 权限的用户邮箱白名单（逗号分隔的 CSV 字符串；空 = 没人能用）
     # 取列表请用 settings.admin_emails_list（List[str]）

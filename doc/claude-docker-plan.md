@@ -4,7 +4,7 @@
 > 约定：**以后每次改动都要回来更新这里的「实施步骤」勾选状态和「变更记录」。**
 > 参考来源：`digital-platform--generator/claude_docker` 与 `backend/src/services/vibe/docker_manager.py`。
 
-最后更新：2026-06-27 · 状态：**M2 完成（slot 抽象 + HRW 路由 + 单测）· 下一步 M3 容器编排（需 Docker/远端）**
+最后更新：2026-06-27 · 状态：**M3 代码完成（slot 容器编排 + exec，14 单测全绿）· 待 Docker 环境实测，下一步 M4 保活/健康 或 M5 API**
 
 **已定决策（2026-06-27）**：① 拓扑 = **方案 A**（每 sub 一个容器）；② **保留 api_key slot 接口能力，初期不启用**（池里先只放 subscription slot，GLM/ChatGPT/DeepSeek 以后再加）；③ 部署机 `43.155.195.115`，镜像推**私有仓库**（默认 `qyhdt/private`，可改）。
 
@@ -132,11 +132,20 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 - [x] `tests/test_claude_router.py`：7 用例全绿 —— sticky / 等权均匀 / 加权比例 / 删 slot 只搬 ~1/N（仅被删 slot 用户动）/ 增 slot ~1/(N+1) / 健康剔除与回流 / 空池抛错
 - [ ] DB 持久化 `provider_slots`：**暂用 env/JSON + `configure()`**，留到 M5 admin 接管时再落 DB
 
-### M3 · 容器编排（slot 为单位）
-- [ ] `docker_manager.py`（移植改造）：`ensure_slot_container(slot)` 幂等创建/启动
-- [ ] subscription slot：per-slot 共享 `.claude` 卷 + 多用户嵌套挂载隔离
-- [ ] api_key slot：注入该 slot 的 `ANTHROPIC_*`
-- [ ] `exec_claude(user_id, prompt)`：路由 → ensure slot 容器 → exec
+### M3 · 容器编排（slot 为单位）（✅ 代码完成，待 Docker 环境实测）
+- [x] `services/claude/docker_manager.py`：`ensure_slot_container(slot)` 幂等创建/启动（labels、mem/cpu、OOM 计分、restart=unless-stopped、就绪等待）
+- [x] subscription slot：per-slot **独占** `.claude` 凭据目录挂到 `/workspace/.claude`（容器内多用户共用一份凭据 → 单一来源续期，避开 rotating token 雪崩）
+- [x] api_key slot：注入该 slot 的 `ANTHROPIC_*`（订阅档严格剔除 ANTHROPIC_*，只放 `CLAUDE_CODE_*`）
+- [x] `exec_claude(user_id, prompt)`：路由 → ensure 容器 → 在 `/workspace/users/<uid>` 跑 `claude -p`（argv 传参，无注入）
+- [x] `ensure_all_enabled()` / `list_slot_containers()` / `is_docker_reachable()`：一把拉起所有 enabled slot 容器 + 状态查询
+- [x] 配置：`CLAUDE_BASE_IMAGE` / `CLAUDE_WORKSPACE_ROOT` / 容器资源 / `CLAUDE_SLOTS_JSON`；requirements 加 `docker>=7.1.0`
+- [x] `tests/test_claude_docker_manager.py`：7 用例（安全 id / 命名 / 镜像解析 / 订阅剔除 ANTHROPIC_* / api_key 注入 / 卷映射 / 路径）
+- [ ] **实测**：需 Docker 守护进程 + 已 build/pull 的镜像才能真起容器（留待镜像就绪）
+
+> **设计取舍（多用户/单容器）**：方案 A 下一个 slot 容器服务多个用户。凭据**按 slot 共享**（正确，
+> 单一来源续期）；用户隔离靠**独立工作目录** `/workspace/users/<uid>` + claude 按 cwd 路径分目录存转录。
+> 同一 slot 内的用户转录在容器内**互相可读**（非访问控制级隔离）——记为 M6 加固项（如需强隔离，
+> 可改 per-user 子容器或 `CLAUDE_CONFIG_DIR` 方案）。跨 slot 天然隔离。
 
 ### M4 · 保活 + 健康 + 故障转移
 - [ ] per-slot probe_loop：保活订阅凭据（harvest/seed 改 per-slot）
@@ -175,3 +184,4 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 - **2026-06-27** · 用户拍板：拓扑 = 方案 A；初期 slot 池仅 subscription（api_key 保留接口不启用）；部署机 `43.155.195.115` + 私有仓库。M0 完成，进入 M1。
 - **2026-06-27** · M1：移植 `claude_docker` → `devops/claude_docker/`（改路径/打码/加 README + per-slot tag 约定）。镜像 build/push 与远端部署待用户确认后执行。
 - **2026-06-27** · M2 完成：`services/claude/{slots,router,registry}.py` + 7 个单测全绿。加权 HRW 路由，sticky、增删 slot 只搬 ~1/N、健康剔除/回流均验证通过。slot 持久化暂用 env/JSON，DB 落到 M5。
+- **2026-06-27** · M3 代码完成：`services/claude/docker_manager.py`（slot 为单位幂等编排 + `exec_claude` + `ensure_all_enabled`）+ 7 个纯逻辑单测（共 14 全绿）。加 `docker` 依赖与 `CLAUDE_*` 配置。记录多用户/单容器的转录隔离取舍（M6 加固）。容器实测待 Docker 镜像就绪。

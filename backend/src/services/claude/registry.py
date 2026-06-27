@@ -12,10 +12,10 @@ slot 配置来源（优先级，后续 M5 admin 接管）：
 from __future__ import annotations
 
 import json
-import os
 import threading
 from typing import List, Optional
 
+from config.settings import settings
 from services.claude.router import SlotRouter
 from services.claude.slots import Slot
 
@@ -54,7 +54,7 @@ def get_router() -> SlotRouter:
     if _router is None:
         with _lock:
             if _router is None:
-                slots = load_slots_from_json(os.environ.get("CLAUDE_SLOTS_JSON", ""))
+                slots = load_slots_from_json(settings.CLAUDE_SLOTS_JSON)
                 _router = SlotRouter(slots)
     return _router
 
