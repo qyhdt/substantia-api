@@ -1,0 +1,42 @@
+# 单容器编排：app + 可选 redis/postgres。
+# 用法：
+#   cp .env.example .env  # 按需修改
+#   docker compose up -d --build
+services:
+  app:
+    build: .
+    image: substantia-api:dev
+    container_name: substantia-api-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-7999}:7999"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+      - postgres
+
+  redis:
+    image: redis:7-alpine
+    container_name: substantia-api-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: substantia-api-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+volumes:
+  pg_data:

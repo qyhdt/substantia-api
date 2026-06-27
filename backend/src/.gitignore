@@ -1,0 +1,31 @@
+# venv
+.venv/
+venv/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env
+.env
+.env.local
+.env.*.local
+# 线上 .env 备份（含真密钥，绝不入库——名字带 .example 但内容是真实凭据）
+.env.online.example
+.env.online
+
+# Logs / Runtime
+logs/
+pids/
+*.log
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
