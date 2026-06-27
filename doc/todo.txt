@@ -1,5 +1,20 @@
 我需要你参考/Users/yang/Documents/devworkspace/digital-platform--generator/claude_docker
 给我这个api项目做个claude 容器 运行的
-记住 我可能会有多个容器 也就是说  我都是subscription 不是apikey 也有可能有apikey 但是是别打模型 例如 chagpt GLM等
-因为我想部署很多个docker 每个docker等sub都不一样 用户通过hash 进行分配到固定的docker上 位了就是分散用户 防止用一个sub token用光了
+记住 我可能会有多个容器 也就是说  我都是subscription 不是apikey 也有可能有apikey 但是是别的模型 例如 chagpt GLM等
+因为我想部署很多个container 每个container的sub都不一样 用户通过hash 进行分配到固定的container上 位了就是分散用户 防止用一个sub token用光了
 先给我做好plan 以后每次修改 都要更新plan的步骤写到/Users/yang/Documents/devworkspace/substantia-api/doc 里面
+我觉得是不是用一个 container 就可以了 然后 动态的进行轮训 container的sub认证对吧
+总之先做plan
+
+
+
+
+
+
+
+给我做一个APIKEY 分发
+有用户端 和管理员
+用户端可以申请apikey
+管理员可以进行分配apikey给用户也可以审核用户申请的key
+ 管理sub的认证 管理container 管理GLM qianwen chatgpt等apikey
+ 总之就是类似oneapi等功能 但是呢 模型我会依赖

@@ -4,7 +4,9 @@
 > 约定：**以后每次改动都要回来更新这里的「实施步骤」勾选状态和「变更记录」。**
 > 参考来源：`digital-platform--generator/claude_docker` 与 `backend/src/services/vibe/docker_manager.py`。
 
-最后更新：2026-06-27 · 状态：**Plan 待确认（尚未开始实现）**
+最后更新：2026-06-27 · 状态：**拓扑已定（方案 A）· M1 文件移植进行中**
+
+**已定决策（2026-06-27）**：① 拓扑 = **方案 A**（每 sub 一个容器）；② **保留 api_key slot 接口能力，初期不启用**（池里先只放 subscription slot，GLM/ChatGPT/DeepSeek 以后再加）；③ 部署机 `43.155.195.115`，镜像推**私有仓库**（默认 `qyhdt/private`，可改）。
 
 ---
 
@@ -51,7 +53,7 @@
 | `health` | 运行时健康态（healthy / unhealthy / cooldown_until） |
 
 - **subscription slot**：用预登录镜像（烘了该账号 OAuth）+ 独占 `.claude` 卷 + 专属保活探针。
-- **api_key slot**：用 base 镜像 `claude-runner` + 注入该 slot 的 `ANTHROPIC_*`。
+- **api_key slot**（⚠️ 初期**只保留接口能力、不启用**，池里先只放 subscription）：用 base 镜像 `claude-runner` + 注入该 slot 的 `ANTHROPIC_*`。
   - **GLM**：走 z.ai / bigmodel 的 **Anthropic 兼容端点**（`ANTHROPIC_BASE_URL=...`，`ANTHROPIC_MODEL=glm-4.x`）。
   - **ChatGPT / OpenAI**：OpenAI 协议与 Anthropic 不同，需经 **LiteLLM 中转**（Anthropic↔OpenAI），slot 的 base_url 指向 LiteLLM。
   - **DeepSeek 等**：本就有 Anthropic 兼容端点，直接配。
@@ -78,7 +80,7 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 | 适用 | 生产、slot 不多（个位到几十） | 资源紧 / slot 很多 / 开发期 |
 
 两个方案**都不是热插拔轮换**，而是「每 sub 独占隔离凭据 + 按 hash 静态分配」。
-→ **默认走方案 A**；若后续资源吃紧再降级到 B。**（此项待你拍板，见文末）**
+→ **已选定方案 A（每 sub 一个容器）**。若后续资源吃紧再考虑降级到 B。
 
 ### 3.4 单 sub 容器内的多用户隔离（复用参考项目做法）
 
@@ -113,14 +115,14 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 
 ## 6. 实施步骤（每次改动回来勾选）
 
-### M0 · 设计确认（当前）
+### M0 · 设计确认（✅ 完成）
 - [x] 读透参考 `claude_docker` + `docker_manager`
 - [x] 产出本 plan
-- [ ] **与用户确认拓扑方案（A / B）与 slot 初始清单** ← 阻塞后续
+- [x] 与用户确认：拓扑 = **A**；初期 slot 池 = **仅 subscription**（api_key 保留接口不启用）；部署机 `43.155.195.115` + 私有仓库
 
 ### M1 · 镜像与本地跑通（单 slot）
-- [ ] 把 `claude_docker/` 移植进 `substantia-api/devops/claude_docker/`（Dockerfile.claude / run.sh / seed-claude-creds.sh 等）
-- [ ] build `claude-runner` base 镜像，`run.sh` 用一个 api_key slot（如 GLM/DeepSeek）跑通 `claude -p`
+- [x] 把 `claude_docker/` 移植进 `substantia-api/devops/claude_docker/`（Dockerfile.claude / run.sh / seed-claude-creds.sh / make-logged-in / relogin-remote），改项目路径为 `~/substantia-api`、seed 路径加 `devops/`，示例 token 打码，加 README（含 per-slot 镜像 tag 约定）
+- [ ] build `claude-runner` base 镜像，`run.sh` 跑通 `claude -p`（用临时 api_key 验证镜像本身，不入池）
 - [ ] 烘一个 subscription 预登录镜像，确认订阅档不报 401
 
 ### M2 · slot 抽象 + 路由
@@ -157,12 +159,16 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 
 ---
 
-## 8. 待确认问题（给用户）
-1. **拓扑选 A（每 sub 一个容器，推荐）还是 B（单容器多 HOME）？**
-2. 初始 slot 清单：几个 subscription？是否要 GLM / ChatGPT / DeepSeek 的 api_key slot？各自端点/模型？
-3. 部署目标机：仍是 `43.155.195.115`（`ide.substantia.ai`）那台？docker 仓库用哪个私有 repo？
+## 8. 待确认问题（✅ 已答 2026-06-27）
+1. ✅ 拓扑 = **方案 A**（每 sub 一个容器）。
+2. ✅ **保留 api_key 接口能力，初期不启用**；池里先只放 subscription slot。具体几个 sub = 配置驱动，部署时填。
+3. ✅ 部署机 `43.155.195.115`；镜像推**私有仓库**（默认 `qyhdt/private`，需要时改）。
+
+仍待补（不阻塞 M1）：初期 subscription slot 的**数量**与各自登录账号（部署时按需增减，配置驱动）。
 
 ---
 
 ## 9. 变更记录（changelog）
 - **2026-06-27** · 初版 plan：确立 slot 池 + HRW 哈希分流 + per-sub 隔离凭据架构；明确「不可热插拔轮换订阅凭据」；列出 M0–M6 步骤。等待拓扑/​slot 清单确认。
+- **2026-06-27** · 用户拍板：拓扑 = 方案 A；初期 slot 池仅 subscription（api_key 保留接口不启用）；部署机 `43.155.195.115` + 私有仓库。M0 完成，进入 M1。
+- **2026-06-27** · M1：移植 `claude_docker` → `devops/claude_docker/`（改路径/打码/加 README + per-slot tag 约定）。镜像 build/push 与远端部署待用户确认后执行。

@@ -1,0 +1,36 @@
+FROM node:20
+
+# node:20 (Debian bookworm 完整版) 已自带 git / curl / bash / ca-certificates
+
+# ── skills 运行时依赖 ──────────────────────────────────────────────
+# claude 个人级 skills（pdf/docx/xlsx/pptx 等）靠 Python 库 + 若干系统工具干活，
+# 不预装的话 claude 只能降级手搓（曾出现"没有可用的 PDF 库"）。这里一次装齐：
+#   - python3 + pip          skills 脚本运行时
+#   - poppler-utils          pdf2image / pdf 转图（pdftoppm）
+#   - tesseract(+chi/eng)    扫描件 OCR（pytesseract）
+#   - libreoffice(writer/calc/impress) docx/xlsx/pptx ↔ pdf 等格式互转（headless）
+#   - fonts-noto-cjk         中文文档 / PDF 渲染不缺字
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip \
+        poppler-utils \
+        tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim \
+        libreoffice-writer libreoffice-calc libreoffice-impress \
+        fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 库（Debian bookworm 系统 pip 受 PEP668 保护，用 --break-system-packages 装到系统）
+RUN pip3 install --no-cache-dir --break-system-packages \
+        pypdf reportlab pdfplumber pypdfium2 pytesseract pdf2image \
+        python-docx openpyxl python-pptx \
+        pandas numpy Pillow beautifulsoup4 lxml markdown
+
+# 容器内直接装 claude-code：npm 会按构建容器的架构（linux-arm64 / linux-x64）自动选包。
+# 用 npmmirror 国内镜像加速，墙内服务器和本地 mac 都通。
+# npm install -g 会自动把 package.json 的 bin 项链到 /usr/local/bin/claude，无需手动 ln。
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install -g @anthropic-ai/claude-code \
+    && which claude \
+    && claude --version
+
+WORKDIR /workspace
+CMD ["bash"]

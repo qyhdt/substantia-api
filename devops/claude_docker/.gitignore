@@ -1,0 +1,10 @@
+# 私有配置不入库
+.env
+.env.dev
+.env.*.local
+
+# macOS
+.DS_Store
+
+# host 预拉的 claude-code Linux 二进制（每次构建按需生成）
+claude-install/

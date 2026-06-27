@@ -1,0 +1,44 @@
+# Claude Code 的独立 Dockerfile
+# ----------------------------------------------------------------------------
+# 构建：
+#   docker build -f Dockerfile.standalone -t claude:latest .
+#
+# 交互（进 bash 里手工跑 `claude` 命令）：
+#   docker run --rm -it \
+#       -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+#       -v "$PWD":/workspace \
+#       claude:latest
+#
+# 一次性任务（非交互）：
+#   docker run --rm \
+#       -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+#       -v "$PWD":/workspace \
+#       claude:latest \
+#       claude --print --dangerously-skip-permissions -p "解释一下这个项目"
+#
+# 如果用第三方 OpenAI-compatible 端点（DeepSeek / 自建中转 / 等）：
+#   -e ANTHROPIC_BASE_URL=https://your-relay.example.com
+#   -e ANTHROPIC_AUTH_TOKEN=sk-xxx   # 或 ANTHROPIC_API_KEY
+#   -e ANTHROPIC_MODEL=deepseek-v4-pro
+# ----------------------------------------------------------------------------
+
+FROM node:20-slim
+
+# 基本工具：git / curl / ca-certificates / less（claude 内部用 less 翻日志）
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git curl ca-certificates less procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# 用 npmmirror 国内源加速（国内/国外都通；不想走可改回 registry.npmjs.org）
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install -g @anthropic-ai/claude-code \
+    && which claude \
+    && claude --version
+
+# 用 node 镜像自带的 node 用户（uid=1000）跑，挂卷的 host 文件 owner 跟它对齐就行
+USER node
+WORKDIR /workspace
+
+# 默认进 bash；想直接跑 claude 把 CMD 换成 `["claude"]` 或在 docker run 后面附命令
+CMD ["bash"]
