@@ -1,0 +1,49 @@
+# substantia-api 远端部署栈（43.155.195.115）。
+# 用法（在远端 devops/deploy/ 下）：
+#   cp .env.example .env && 编辑 .env 填密钥
+#   docker compose up -d --build
+#
+# 设计：
+# - backend 以 root 跑（需 chown 容器工作目录给 node uid=1000）+ 挂 docker.sock
+#   （docker_manager 经 SDK 起/exec 兄弟 claude 容器）+ 挂 host workspace（兄弟容器
+#   的 bind 源是 host 路径，backend 也要按同路径 mkdir）。
+# - 接入已存在的外部网络 substantia_net，edge-nginx 在该网，可按容器名反代。
+name: substantia-api
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: substantia-api-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: substantia
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set in .env}
+      POSTGRES_DB: substantia
+    volumes:
+      - substantia_api_pgdata:/var/lib/postgresql/data
+    networks: [substantia_net]
+    # 宿主 OOM 时优先保护 DB（别被内核杀）
+    oom_score_adj: -500
+
+  backend:
+    build:
+      context: ../../backend/src
+    image: substantia-api-backend:latest
+    container_name: substantia-api-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "9999"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/substantia/claude:/var/lib/substantia/claude
+      - ./logs:/app/logs
+    networks: [substantia_net]
+    depends_on: [db]
+
+volumes:
+  substantia_api_pgdata:
+
+networks:
+  substantia_net:
+    external: true
