@@ -1,10 +1,13 @@
 import { useI18n, LangToggle } from '../i18n'
 
+// 官网价（每百万 token，美元）。展示时同时给出 ×50% 的实付价。
+const DISCOUNT = 0.5
 const PRICES = [
-  { model: 'claude-opus-4', in: '$15.00', out: '$75.00' },
-  { model: 'claude-sonnet-4', in: '$3.00', out: '$15.00' },
-  { model: 'claude-haiku', in: '$0.80', out: '$4.00' },
+  { model: 'claude-opus-4', in: 15, out: 75 },
+  { model: 'claude-sonnet-4', in: 3, out: 15 },
+  { model: 'claude-haiku-4', in: 0.8, out: 4 },
 ]
+const usd = (n: number) => `$${n.toFixed(2)}`
 
 export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => void }) {
   const { t } = useI18n()
@@ -54,6 +57,9 @@ export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => vo
 
       {/* 价格 */}
       <section id="pricing" className="lp-section">
+        <div className="lp-center" style={{ marginBottom: 10 }}>
+          <span className="lp-badge">{t('pricing_badge')}</span>
+        </div>
         <h2>{t('pricing_title')}</h2>
         <p className="ak-muted lp-center">{t('pricing_sub')}</p>
         <div className="lp-pricing">
@@ -69,8 +75,14 @@ export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => vo
               {PRICES.map((p) => (
                 <tr key={p.model}>
                   <td className="ak-mono">{p.model}</td>
-                  <td>{p.in}</td>
-                  <td>{p.out}</td>
+                  <td>
+                    <span className="lp-off">{t('pricing_official')} {usd(p.in)}</span>{' '}
+                    <b className="lp-now">{usd(p.in * DISCOUNT)}</b>
+                  </td>
+                  <td>
+                    <span className="lp-off">{t('pricing_official')} {usd(p.out)}</span>{' '}
+                    <b className="lp-now">{usd(p.out * DISCOUNT)}</b>
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -34,12 +34,14 @@ const DICT = {
     feat4_d: '控制台自助创建 / 禁用 API key，实时查看每把 key 的调用量与花费。',
 
     // 价格
-    pricing_title: '简单透明的价格',
-    pricing_sub: '注册即送 $20 试用额度，按 token 实付，不同模型不同单价。',
+    pricing_title: '官网价 5 折',
+    pricing_sub: '价格对标 Anthropic 官网，全站统一 5 折：官网价 × 50% = 你的实付。注册即送 $20，按 token 精确结算。',
+    pricing_badge: '🔥 官网价 5 折',
     pricing_col_model: '模型',
     pricing_col_in: '输入 / 百万 token',
     pricing_col_out: '输出 / 百万 token',
-    pricing_note: '* 实际计价以控制台为准，余额按微美元精确结算。',
+    pricing_official: '官网',
+    pricing_note: '* 价格对标 Anthropic 官网，划线为官网价、加粗为你的实付（5 折）。余额按微美元精确结算。',
     pricing_cta: '注册领 $20 →',
 
     // 落地页底部 / 登录
@@ -81,12 +83,14 @@ const DICT = {
     feat4_t: 'Self-serve keys & usage',
     feat4_d: 'Create or revoke API keys in the console and watch per-key calls and spend in real time.',
 
-    pricing_title: 'Simple, transparent pricing',
-    pricing_sub: 'Get $20 free on signup. Pay per token; each model has its own rate.',
+    pricing_title: '50% off official pricing',
+    pricing_sub: 'Benchmarked to Anthropic official rates — a flat 50% off: official price × 50% = what you pay. $20 free on signup, settled precisely per token.',
+    pricing_badge: '🔥 50% off official',
     pricing_col_model: 'Model',
     pricing_col_in: 'Input / 1M tokens',
     pricing_col_out: 'Output / 1M tokens',
-    pricing_note: '* Live rates shown in the console; balance is settled precisely in micro-USD.',
+    pricing_official: 'Official',
+    pricing_note: '* Benchmarked to Anthropic official rates: struck-through is the official price, bold is your price (50% off). Balance settled in micro-USD.',
     pricing_cta: 'Claim $20 free →',
 
     footer_tag: 'Substantia API · the Claude gateway for developers',

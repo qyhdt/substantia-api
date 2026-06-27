@@ -143,6 +143,12 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   border-radius: 14px; padding: 24px; text-align: center; box-shadow: 0 1px 2px rgba(16,24,40,.04);
 }
 .lp-pricing .ak-table { text-align: left; }
+.lp-badge {
+  display: inline-block; padding: 6px 14px; border-radius: 999px;
+  background: #fef2f2; color: var(--danger); font-weight: 700; font-size: 13px;
+}
+.lp-off { color: var(--muted); text-decoration: line-through; font-size: 12px; }
+.lp-now { color: var(--accent-2); font-size: 14px; }
 
 .lp-footer {
   border-top: 1px solid var(--border); margin-top: 40px; padding: 28px 20px;
