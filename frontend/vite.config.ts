@@ -5,11 +5,11 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
-    // 开发期把 /api 反代到后端（FastAPI 默认 7999），避免 CORS
+    port: 6337,
+    // 开发期把 /api 反代到后端（FastAPI 默认 9999），避免 CORS
     proxy: {
       '/api': {
-        target: 'http://localhost:7999',
+        target: 'http://localhost:9999',
         changeOrigin: true,
       },
     },

@@ -30,17 +30,17 @@ substantia-api/
 cd backend/src
 cp .env.example .env          # 按需修改（JWT_SECRET、DATABASE_URL 等）
 ./setup-venv.sh               # 创建 .venv 并装依赖
-./startup-local.sh            # 启动（uvicorn 热重载，默认 :7999）
+./startup-local.sh            # 启动（uvicorn 热重载，默认 :9999）
 ```
 
 验证：
 
 ```bash
-curl localhost:7999/api/health     # {"status":"ok"}
-curl localhost:7999/api/version    # {"name":"substantia-api","version":"0.1.0"}
+curl localhost:9999/api/health     # {"status":"ok"}
+curl localhost:9999/api/version    # {"name":"substantia-api","version":"0.1.0"}
 ```
 
-API 文档：http://localhost:7999/docs
+API 文档：http://localhost:9999/docs
 
 容器方式：
 
@@ -61,7 +61,7 @@ cd backend/src && docker compose up -d --build   # app + redis + postgres
 ```bash
 cd frontend
 npm install
-npm run dev                   # http://localhost:5173，/api 自动反代到 :7999
+npm run dev                   # http://localhost:6337，/api 自动反代到 :9999
 npm run build                 # 产物在 dist/
 ```
 

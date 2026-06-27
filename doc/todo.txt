@@ -1,0 +1,5 @@
+我需要你参考/Users/yang/Documents/devworkspace/digital-platform--generator/claude_docker
+给我这个api项目做个claude 容器 运行的
+记住 我可能会有多个容器 也就是说  我都是subscription 不是apikey 也有可能有apikey 但是是别打模型 例如 chagpt GLM等
+因为我想部署很多个docker 每个docker等sub都不一样 用户通过hash 进行分配到固定的docker上 位了就是分散用户 防止用一个sub token用光了
+先给我做好plan 以后每次修改 都要更新plan的步骤写到/Users/yang/Documents/devworkspace/substantia-api/doc 里面

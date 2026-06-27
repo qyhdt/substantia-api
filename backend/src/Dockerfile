@@ -14,9 +14,9 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 
-ENV PORT=7999
-EXPOSE 7999
+ENV PORT=9999
+EXPOSE 9999
 
 # 单进程 + uvicorn；如需多 worker：
-#   gunicorn -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:7999 main:app
+#   gunicorn -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:9999 main:app
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT}"]

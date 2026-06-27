@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 应用入口：
-    uvicorn main:app --host 0.0.0.0 --port 7999 --reload
+    uvicorn main:app --host 0.0.0.0 --port 9999 --reload
 或:
     ./startup-local.sh
 """
@@ -76,8 +76,8 @@ app = FastAPI(lifespan=lifespan, title=APP_NAME)
 CORS_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "http://localhost:6337",
+    "http://127.0.0.1:6337",
 ]
 CORS_ORIGINS += settings.cors_origins_list
 

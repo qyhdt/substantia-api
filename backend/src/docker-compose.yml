@@ -11,7 +11,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${PORT:-7999}:7999"
+      - "${PORT:-9999}:9999"
     volumes:
       - ./logs:/app/logs
     depends_on:

@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # ---------- HTTP ----------
     HOST: str = "0.0.0.0"
-    PORT: int = 7999
+    PORT: int = 9999
 
     # 慢请求阈值（秒），中间件根据它写 latency.log
     REQUEST_LATENCY_THRESHOLD: float = 2.0

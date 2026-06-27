@@ -5,12 +5,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# 加载 .env 中的 PORT（若有）；默认 7999
+# 加载 .env 中的 PORT（若有）；默认 9999
 if [ -f .env ]; then
     # shellcheck disable=SC1091
     set -a; source .env; set +a
 fi
-PORT=${PORT:-7999}
+PORT=${PORT:-9999}
 HOST=${HOST:-0.0.0.0}
 
 # 优先使用本目录 venv
