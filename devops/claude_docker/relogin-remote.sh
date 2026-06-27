@@ -121,10 +121,12 @@ else
   echo ">>> 已推送: $IMAGE"
 fi
 
-# 3.6 删掉所有 per-user claude 容器 → 下次请求按新镜像重建（订阅模式下用新 OAuth）
-n=$(docker ps -a --filter label=vibe.platform=claude-runner --format '{{.Names}}' | wc -l | tr -d ' ')
-docker ps -a --filter label=vibe.platform=claude-runner --format '{{.Names}}' | xargs -r docker rm -f >/dev/null
-echo ">>> 已删除 $n 个存量 claude 容器（下次请求自动重建）"
+# 3.6 删掉 substantia 自己的 slot 容器 → backend ensure 会按新镜像重建（订阅用新 OAuth）。
+#     ⚠️ 只按 substantia 的 label 删，绝不碰同机 digital-platform 的 vibe.platform=claude-runner 容器。
+SUBSTANTIA_LABEL="substantia.claude=slot-container"
+n=$(docker ps -a --filter "label=$SUBSTANTIA_LABEL" --format '{{.Names}}' | wc -l | tr -d ' ')
+docker ps -a --filter "label=$SUBSTANTIA_LABEL" --format '{{.Names}}' | xargs -r docker rm -f >/dev/null
+echo ">>> 已删除 $n 个 substantia slot 容器（backend 下次 ensure 自动重建）"
 
 # 3.7 清理临时容器
 docker rm -f "$TMP" >/dev/null 2>&1 || true
