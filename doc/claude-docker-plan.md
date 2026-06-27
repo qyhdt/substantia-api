@@ -4,7 +4,7 @@
 > 约定：**以后每次改动都要回来更新这里的「实施步骤」勾选状态和「变更记录」。**
 > 参考来源：`digital-platform--generator/claude_docker` 与 `backend/src/services/vibe/docker_manager.py`。
 
-最后更新：2026-06-27 · 状态：**M0–M5 代码全部完成（19 单测全绿）· 仅剩在 `43.155.195.115` 上 build 镜像 + 配 slot + 实测**
+最后更新：2026-06-27 · 状态：**M0–M5 代码完成 + 远端 sub-a slot 端到端跑通（真 Opus）· 待登录更多 sub + 部署 backend**
 
 **已定决策（2026-06-27）**：① 拓扑 = **方案 A**（每 sub 一个容器）；② **保留 api_key slot 接口能力，初期不启用**（池里先只放 subscription slot，GLM/ChatGPT/DeepSeek 以后再加）；③ 部署机 `43.155.195.115`，镜像推**私有仓库**（默认 `qyhdt/private`，可改）。
 
@@ -120,10 +120,13 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 - [x] 产出本 plan
 - [x] 与用户确认：拓扑 = **A**；初期 slot 池 = **仅 subscription**（api_key 保留接口不启用）；部署机 `43.155.195.115` + 私有仓库
 
-### M1 · 镜像与本地跑通（单 slot）
+### M1 · 镜像与本地跑通（单 slot）（✅ 完成）
 - [x] 把 `claude_docker/` 移植进 `substantia-api/devops/claude_docker/`（Dockerfile.claude / run.sh / seed-claude-creds.sh / make-logged-in / relogin-remote），改项目路径为 `~/substantia-api`、seed 路径加 `devops/`，示例 token 打码，加 README（含 per-slot 镜像 tag 约定）
-- [ ] build `claude-runner` base 镜像，`run.sh` 跑通 `claude -p`（用临时 api_key 验证镜像本身，不入池）
-- [ ] 烘一个 subscription 预登录镜像，确认订阅档不报 401
+- [x] base 镜像 `claude-runner` 远端已存在（复用，api_key slot 用）
+- [x] **sub-a 订阅预登录镜像 `qyhdt/private:claude-loggedin-sub-a` 已烘**（用户交互 /login，NO_PUSH 留远端本地）
+- [x] **远端实测**：按 `ensure_slot_container` 同参起 `claude-slot-sub-a` → 凭据自动 seed、真跑 `claude -p` 返回 pong（订阅 Opus，不 401）、`restart=unless-stopped` 永远存活、活凭据写回 host bind 目录
+- [x] 修 relogin 脚本：删容器只按 `substantia.claude=slot-container` label（之前误删了同机 digital-platform 的 `claude-usr-*`/`claude-testuser`，那些会按需自动重建，无数据损失）
+- [x] 远端写好 `/var/lib/substantia/claude/slots.json`（sub-a），backend 部署即自动加载
 
 ### M2 · slot 抽象 + 路由（✅ 完成）
 - [x] `backend/src/services/claude/slots.py`：`Slot` 模型（subscription/api_key 两型 + 运行时健康态 + `is_routable`/`mark_unhealthy`/`mark_healthy`）
@@ -194,3 +197,4 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 - **2026-06-27** · M3 代码完成：`services/claude/docker_manager.py`（slot 为单位幂等编排 + `exec_claude` + `ensure_all_enabled`）+ 7 个纯逻辑单测（共 14 全绿）。加 `docker` 依赖与 `CLAUDE_*` 配置。记录多用户/单容器的转录隔离取舍（M6 加固）。容器实测待 Docker 镜像就绪。
 - **2026-06-27** · M4+M5 代码完成：`health.py`（探针/保活/`probe_loop`）、`exec_claude` 即时故障转移、`store.py`（slot 文件持久化）、`controller/claude.py`（用户 `/claude/chat` + admin slot CRUD/健康/容器）、`main.py` 启动钩子（ensure + probe_loop）。+5 单测（共 19 全绿）。剩余：远端 build 镜像 + 配 slot + 实测；SSE 流式与 admin relogin UI 后续按需。
   - 旁注：用户在 settings 增了 `AK_*`（下游 APIKey 分发/计费/网关）配置 —— 属另一条线，本 plan 暂不覆盖。
+- **2026-06-27** · 远端落地 sub-a：用户交互登录烘出 `qyhdt/private:claude-loggedin-sub-a`；远端 clone 仓库、建 `/var/lib/substantia/claude`（owner uid1000）、写 `slots.json`；按 manager 同参起 `claude-slot-sub-a` 实测端到端通过（真 Opus、永远存活、凭据 host 持久+轮换写回）。修复 relogin 误删跨项目容器的 bug。**剩余：登录更多 sub（sub-b…）+ 部署 substantia backend 让 `/api/claude/chat` 真正对外。**
