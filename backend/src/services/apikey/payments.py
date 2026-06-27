@@ -161,10 +161,14 @@ async def handle_webhook(headers, raw: bytes) -> dict:
     return {"granted": True, "out_trade_no": otn, "balance_micro_usd": new_bal}
 
 
-async def list_for_user(user_id: int) -> list:
+async def list_for_user(user_id: int, limit: int = 50, offset: int = 0) -> dict:
+    """分页：返回 {items, total}。"""
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = await db_util.fetchval("SELECT count(*) FROM ak_payments WHERE user_id = $1", user_id)
     rows = await db_util.fetch(
         "SELECT id, provider, out_trade_no, amount_micro_usd, status, created_at, paid_at "
-        "FROM ak_payments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50",
-        user_id,
+        "FROM ak_payments WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+        user_id, limit, offset,
     )
-    return [dict(r) for r in rows]
+    return {"items": [dict(r) for r in rows], "total": int(total or 0)}

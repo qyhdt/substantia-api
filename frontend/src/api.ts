@@ -40,14 +40,15 @@ export const portal = {
   keys: () => api.get('/portal/keys'),
   newKey: (name: string, allowed_models?: string[]) => api.post('/portal/keys', { name, allowed_models }),
   disableKey: (id: number) => api.post(`/portal/keys/${id}/disable`),
+  deleteKey: (id: number) => api.del(`/portal/keys/${id}`),
   keyUsage: (id: number) => api.get(`/portal/keys/${id}/usage`),
-  usage: () => api.get('/portal/usage'),
+  usage: (limit = 50, offset = 0) => api.get(`/portal/usage?limit=${limit}&offset=${offset}`),
   topups: () => api.get('/portal/topups'),
   submitTopup: (amount_usd: number, reason?: string) => api.post('/portal/topups', { amount_usd, reason }),
   // 自助充值（Polar）
   rechargeEnabled: () => api.get('/portal/recharge/enabled'),
   recharge: (amount_usd: number) => api.post('/portal/recharge', { amount_usd }),
-  payments: () => api.get('/portal/payments'),
+  payments: (limit = 50, offset = 0) => api.get(`/portal/payments?limit=${limit}&offset=${offset}`),
 }
 
 // ---------- 管理端 ----------

@@ -69,6 +69,17 @@ async def get_key(key_id: int, user_id: Optional[int] = None) -> Optional[Dict[s
     return _public(dict(row)) if row else None
 
 
+async def delete_key(key_id: int, user_id: Optional[int] = None) -> bool:
+    """彻底删除一把 key（本人）。usage 日志保留（按 api_key_id 留痕，无 FK）。"""
+    if user_id is not None:
+        res = await db_util.execute(
+            "DELETE FROM ak_api_keys WHERE id = $1 AND user_id = $2", key_id, user_id
+        )
+    else:
+        res = await db_util.execute("DELETE FROM ak_api_keys WHERE id = $1", key_id)
+    return res.endswith("1")
+
+
 async def set_status(key_id: int, status: str, user_id: Optional[int] = None) -> bool:
     """active | disabled | revoked。user_id 给定时限定本人（用户自助禁用）。"""
     if user_id is not None:

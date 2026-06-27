@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { fmtUsd, portal } from '../api'
-import { Async, Card, Pill, useAsync } from '../components/common'
+import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 
 const curlFor = (key: string) => `curl https://api.substantia.ai/v1/messages \\
   -H "x-api-key: ${key}" -H "content-type: application/json" \\
@@ -64,6 +64,11 @@ function Keys({ justIssued }: { justIssued?: string }) {
   }
   async function disable(id: number) {
     await portal.disableKey(id)
+    state.reload()
+  }
+  async function del(id: number) {
+    if (!window.confirm('确认删除这把 key？删除后用它的请求会立即失效，且不可恢复。')) return
+    await portal.deleteKey(id)
     state.reload()
   }
 
@@ -148,8 +153,16 @@ function Keys({ justIssued }: { justIssued?: string }) {
                   <td>{fmtUsd(k.spent_micro_usd)}</td>
                   <td>{k.quota_cap_micro_usd == null ? '—' : fmtUsd(k.quota_cap_micro_usd)}</td>
                   <td className="ak-muted">{new Date(k.created_at).toLocaleDateString()}</td>
-                  <td>{k.status === 'active' &&
-                    <button className="ak-btn danger" onClick={() => disable(k.id)}>禁用</button>}</td>
+                  <td>
+                    <div className="ak-row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                      {k.key_plain
+                        ? <CopyBtn text={k.key_plain} label="复制" />
+                        : <button className="ak-btn" disabled title="旧 key 未存明文，无法复制完整 key">复制</button>}
+                      {k.status === 'active' &&
+                        <button className="ak-btn" onClick={() => disable(k.id)}>禁用</button>}
+                      <button className="ak-btn danger" onClick={() => del(k.id)}>删除</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {keys.length === 0 && <tr><td colSpan={7} className="ak-muted">暂无 key</td></tr>}
@@ -162,14 +175,16 @@ function Keys({ justIssued }: { justIssued?: string }) {
 }
 
 function Usage() {
-  const state = useAsync(() => portal.usage(), [])
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+  const state = useAsync(() => portal.usage(pageSize, (page - 1) * pageSize), [page, pageSize])
   return (
     <Card title="用量明细">
-      <Async state={state}>{(rows: any[]) => (
+      <Async state={state}>{(data: any) => (<>
         <table className="ak-table">
           <thead><tr><th>时间</th><th>模型</th><th>slot</th><th>tokens</th><th>花费</th><th>状态</th></tr></thead>
           <tbody>
-            {rows.map((r) => (
+            {(data.items || []).map((r: any) => (
               <tr key={r.id}>
                 <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
                 <td>{r.model}</td>
@@ -179,16 +194,20 @@ function Usage() {
                 <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status}</Pill></td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={6} className="ak-muted">还没有调用记录</td></tr>}
+            {(data.items || []).length === 0 && <tr><td colSpan={6} className="ak-muted">还没有调用记录</td></tr>}
           </tbody>
         </table>
-      )}</Async>
+        <Pager total={data.total || 0} page={page} pageSize={pageSize}
+          onPage={setPage} onPageSize={(s) => { setPageSize(s); setPage(1) }} />
+      </>)}</Async>
     </Card>
   )
 }
 
 function Topups() {
-  const state = useAsync(() => portal.payments(), [])
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+  const state = useAsync(() => portal.payments(pageSize, (page - 1) * pageSize), [page, pageSize])
   const enabled = useAsync(() => portal.rechargeEnabled(), [])
   const [amount, setAmount] = useState(10)
   const [busy, setBusy] = useState(false)
@@ -223,21 +242,23 @@ function Topups() {
         </div>
       </Card>
       <Card title="充值记录">
-        <Async state={state}>{(rows: any[]) => (
+        <Async state={state}>{(data: any) => (<>
           <table className="ak-table">
             <thead><tr><th>时间</th><th>金额</th><th>状态</th></tr></thead>
             <tbody>
-              {rows.map((r) => (
+              {(data.items || []).map((r: any) => (
                 <tr key={r.id}>
                   <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
                   <td>{fmtUsd(r.amount_micro_usd)}</td>
                   <td><Pill kind={r.status === 'paid' ? 'ok' : 'warn'}>{r.status === 'paid' ? '已到账' : '待支付'}</Pill></td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={3} className="ak-muted">暂无记录</td></tr>}
+              {(data.items || []).length === 0 && <tr><td colSpan={3} className="ak-muted">暂无记录</td></tr>}
             </tbody>
           </table>
-        )}</Async>
+          <Pager total={data.total || 0} page={page} pageSize={pageSize}
+            onPage={setPage} onPageSize={(s) => { setPageSize(s); setPage(1) }} />
+        </>)}</Async>
       </Card>
     </>
   )

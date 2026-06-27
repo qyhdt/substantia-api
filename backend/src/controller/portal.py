@@ -68,14 +68,22 @@ async def disable_key(key_id: int, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+@router.delete("/keys/{key_id}", summary="删除我的 key")
+async def delete_key(key_id: int, user: dict = Depends(current_user)):
+    ok = await keys_svc.delete_key(key_id, user_id=_uid(user))
+    if not ok:
+        raise HTTPException(status_code=404, detail="key not found")
+    return {"ok": True}
+
+
 @router.get("/keys/{key_id}/usage", summary="某 key 的用量明细")
 async def key_usage(key_id: int, user: dict = Depends(current_user)):
     return await usage_svc.usage_for_key(key_id, _uid(user))
 
 
-@router.get("/usage", summary="我的全部用量明细")
-async def my_usage(user: dict = Depends(current_user)):
-    return await usage_svc.usage_for_user(_uid(user))
+@router.get("/usage", summary="我的用量明细（分页）")
+async def my_usage(limit: int = 50, offset: int = 0, user: dict = Depends(current_user)):
+    return await usage_svc.usage_for_user(_uid(user), limit, offset)
 
 
 @router.get("/topups", summary="我的充值申请列表")
@@ -101,6 +109,6 @@ async def recharge(payload: RechargeIn, user: dict = Depends(current_user)):
     return await payments_svc.create_checkout(_uid(user), email, payload.amount_usd)
 
 
-@router.get("/payments", summary="我的充值订单")
-async def my_payments(user: dict = Depends(current_user)):
-    return await payments_svc.list_for_user(_uid(user))
+@router.get("/payments", summary="我的充值订单（分页）")
+async def my_payments(limit: int = 50, offset: int = 0, user: dict = Depends(current_user)):
+    return await payments_svc.list_for_user(_uid(user), limit, offset)

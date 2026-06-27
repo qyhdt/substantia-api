@@ -36,6 +36,34 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   return { data, loading, error, reload: run }
 }
 
+export function Pager({ total, page, pageSize, onPage, onPageSize }: {
+  total: number; page: number; pageSize: number
+  onPage: (p: number) => void; onPageSize: (s: number) => void
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const [jump, setJump] = useState('')
+  const go = () => {
+    const p = parseInt(jump, 10)
+    if (!isNaN(p)) onPage(Math.min(Math.max(1, p), pages))
+    setJump('')
+  }
+  return (
+    <div className="ak-row" style={{ justifyContent: 'space-between', marginTop: 12, gap: 8 }}>
+      <span className="ak-muted">共 {total} 条 · 第 {page}/{pages} 页</span>
+      <div className="ak-row" style={{ gap: 6 }}>
+        <select className="ak-select" value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))} style={{ minWidth: 90 }}>
+          {[20, 50, 100, 200].map((s) => <option key={s} value={s}>{s} 条/页</option>)}
+        </select>
+        <button className="ak-btn" disabled={page <= 1} onClick={() => onPage(page - 1)}>上一页</button>
+        <button className="ak-btn" disabled={page >= pages} onClick={() => onPage(page + 1)}>下一页</button>
+        <input className="ak-input" value={jump} onChange={(e) => setJump(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && go()} placeholder="页码" style={{ width: 64 }} />
+        <button className="ak-btn" onClick={go}>跳转</button>
+      </div>
+    </div>
+  )
+}
+
 export function Async<T>({ state, children }: { state: ReturnType<typeof useAsync<T>>; children: (d: T) => React.ReactNode }) {
   if (state.loading) return <p className="ak-muted">加载中…</p>
   if (state.error) return <p className="ak-err">{state.error}</p>

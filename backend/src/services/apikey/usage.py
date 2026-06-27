@@ -97,12 +97,16 @@ async def usage_for_key(api_key_id: int, user_id: int, limit: int = 100) -> List
     return [dict(r) for r in rows]
 
 
-async def usage_for_user(user_id: int, limit: int = 200) -> List[Dict[str, Any]]:
+async def usage_for_user(user_id: int, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+    """分页：返回 {items, total}。"""
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = await db_util.fetchval("SELECT count(*) FROM ak_usage_logs WHERE user_id = $1", user_id)
     rows = await db_util.fetch(
-        "SELECT * FROM ak_usage_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
-        user_id, limit,
+        "SELECT * FROM ak_usage_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+        user_id, limit, offset,
     )
-    return [dict(r) for r in rows]
+    return {"items": [dict(r) for r in rows], "total": int(total or 0)}
 
 
 async def admin_summary(limit: int = 500) -> Dict[str, Any]:
