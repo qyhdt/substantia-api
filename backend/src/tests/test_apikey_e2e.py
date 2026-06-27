@@ -1,0 +1,121 @@
+# -*- coding: utf-8 -*-
+"""
+APIKey 分发端到端冒烟测试。
+
+需要一个真 Postgres（通过 DATABASE_URL 注入；无则 skip）。
+覆盖：注册(自动充$20+签发key) → portal → 充值申请 → admin 审核加余额 → 模型定价 → 计费扣减。
+
+注意：变更经 HTTP 接口触发（真打 handler/鉴权/序列化），但**变更后的状态读回用 service 直读**。
+原因：starlette TestClient 给每个请求开独立事件循环，asyncpg 连接池按循环隔离，跨请求
+read-after-write 会读到旧快照（已确认非产品 bug：service 直读与 DB 均为新值）。
+"""
+import asyncio
+import os
+
+import pytest
+from fastapi.testclient import TestClient
+
+pytestmark = pytest.mark.skipif(not os.getenv("DATABASE_URL"), reason="needs DATABASE_URL")
+
+ADMIN_EMAIL = "admin@example.com"
+
+
+@pytest.fixture(scope="module")
+def client():
+    os.environ["ADMIN_EMAILS"] = ADMIN_EMAIL
+    from config.settings import settings
+    settings.ADMIN_EMAILS = ADMIN_EMAIL
+    import main
+    with TestClient(main.app) as c:   # lifespan 跑 migrations
+        # 干净起点：清空本域表（migrations 已在 lifespan 建好）
+        from utils import db as db_util
+        asyncio.run(db_util.execute(
+            "TRUNCATE ak_users, ak_api_keys, ak_topup_requests, ak_usage_logs RESTART IDENTITY CASCADE"
+        ))
+        yield c
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def test_full_flow(client):
+    from services.apikey import usage as usage_svc
+    from services.apikey import users as users_svc
+
+    # 1) 注册：自动充 $20 + 签发首把 key（同请求内响应可信）
+    r = client.post("/api/auth/register", json={"email": "u1@example.com", "password": "secret123"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["api_key"].startswith("sk-substantia-")
+    assert body["user"]["balance_usd"] == 20.0
+    u1 = int(body["user"]["id"])
+    h = {"Authorization": f"Bearer {body['access_token']}"}
+
+    # service 直读核对余额 + 首 key
+    user = _run(users_svc.get_user(u1))
+    assert user["balance_micro_usd"] == 20_000_000
+    from services.apikey import keys as keys_svc
+    klist = _run(keys_svc.list_keys(u1))
+    assert len(klist) == 1 and "key_hash" not in klist[0]
+    key_id = klist[0]["id"]
+
+    # 2) portal keys 接口脱敏
+    keys_http = client.get("/api/portal/keys", headers=h).json()
+    assert "key_hash" not in keys_http[0]
+
+    # 3) 充值申请 $50（HTTP）
+    tp = client.post("/api/portal/topups", json={"amount_usd": 50, "reason": "more"}, headers=h)
+    assert tp.status_code == 200
+    topup_id = tp.json()["id"]
+
+    # 4) admin（白名单邮箱注册即 admin）审核批准
+    ra = client.post("/api/auth/register", json={"email": ADMIN_EMAIL, "password": "secret123"})
+    assert ra.json()["user"]["role"] == "admin"
+    ah = {"Authorization": f"Bearer {ra.json()['access_token']}"}
+    rev = client.post(f"/api/admin/topups/{topup_id}/review", json={"approve": True}, headers=ah)
+    assert rev.status_code == 200 and rev.json()["status"] == "approved"
+
+    # 批准后余额 = $70（service 直读）
+    assert _run(users_svc.get_user(u1))["balance_micro_usd"] == 70_000_000
+
+    # 重复审核 → 409
+    assert client.post(f"/api/admin/topups/{topup_id}/review",
+                       json={"approve": True}, headers=ah).status_code == 409
+
+    # 5) admin 模型定价（HTTP）
+    pr = client.post("/api/admin/model-prices", json={
+        "model": "test-model", "input_micro_usd_per_1k": 1000,
+        "output_micro_usd_per_1k": 2000, "enabled": True,
+    }, headers=ah)
+    assert pr.status_code == 200
+
+    # 6) 计费：1000 in ×1000 + 500 out ×2000 /1000 = 2000 micro（charge+读回同一循环）
+    async def _charge_and_read():
+        billed = await usage_svc.record_and_charge(
+            api_key_id=key_id, user_id=u1, slot_id="sub-a", model="test-model",
+            prompt_tokens=1000, completion_tokens=500, latency_ms=12,
+        )
+        return billed, await users_svc.get_user(u1), await usage_svc.usage_for_user(u1)
+
+    billed, user_after, rows = _run(_charge_and_read())
+    assert billed["cost_micro_usd"] == 2000
+    assert user_after["balance_micro_usd"] == 70_000_000 - 2000
+    assert len(rows) == 1 and rows[0]["cost_micro_usd"] == 2000 and rows[0]["model"] == "test-model"
+
+
+def test_gateway_requires_key(client):
+    # 无 sk-key → 401
+    assert client.post("/api/v1/messages", json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 401
+    # 乱 key → 401
+    r = client.post("/api/v1/messages",
+                    json={"messages": [{"role": "user", "content": "hi"}]},
+                    headers={"x-api-key": "sk-substantia-bogus"})
+    assert r.status_code == 401
+
+
+def test_admin_guard(client):
+    # 普通用户访问 admin → 403
+    reg = client.post("/api/auth/register", json={"email": "u2@example.com", "password": "secret123"})
+    uh = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    assert client.get("/api/admin/users", headers=uh).status_code == 403

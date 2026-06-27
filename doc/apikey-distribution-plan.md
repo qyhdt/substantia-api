@@ -4,7 +4,14 @@
 > 约定：**以后每次改动都要回来更新「实施里程碑」勾选状态和「变更记录」。**
 > 姊妹文档：容器/订阅运行层见 [`claude-docker-plan.md`](./claude-docker-plan.md)（由容器团队负责，本计划只**消费与管理**，不实现容器本身）。
 
-最后更新：2026-06-27 · 状态：**草案待确认（未动代码）**
+最后更新：2026-06-27 · 状态：**后端 + 前端已实现并测试通过（32 后端测试绿）；待真实 slot 镜像联调 docker exec**
+
+**实现要点（2026-06-27）**：容器团队已落地 `services/claude/*`（slot 池 + HRW 路由 + 容器编排 +
+`exec_claude` + 健康探针）与 `controller/claude.py`（`/api/claude/chat` + `/api/admin/claude/*` slot/容器管理）。
+**本系统不再自建 `ak_credentials`/`ak_containers`，slot 即上游凭据，直接消费容器团队的引擎**：
+- 网关 `controller/gateway.py` → `services/apikey/runner.py`（复用其路由+容器生命周期，但跑
+  `claude -p --output-format json` 以拿 token 用量来计费），「sub 用光接 apikey」= slot 池级故障转移。
+- admin 的「上游凭据/容器」页直接对接容器团队的 `/api/admin/claude/*`。
 
 **已定决策（2026-06-27）**：① 投递方式 = **`docker exec`**（HTTPS 进来 → 后端直接 exec 容器内 `claude -p` → 返回）；② **sub→apikey 降级在网关/后端层做**（exec 重试时注入 apikey 的 `ANTHROPIC_*` env）；③ 下游协议 = **只做 Anthropic 兼容**，OpenAI 兼容延后(P2/暂不做)；④ **计费按 token，逐模型定价**（不同模型不同输入/输出单价）；⑤ **用户自助注册**；⑥ **注册自动送 $20 余额试用**（无需审核），申请/审核流程改为「**申请加额度/充值**」由 admin 审核；⑦ **路由按 user_id**（HRW sticky）。
 
@@ -161,56 +168,69 @@
 - [x] 摸清现有后端骨架（JWT/admin/migrate/sse/redis 可复用）
 - [x] 产出本 plan
 - [x] 用户确认 §10 全部 4 项（计费=token逐模型 / 自助注册 / 注册送$20 / 按user路由）
-- [ ] 与容器团队对齐 §8 docker exec 细节（命名/workspace/输出格式/流式）
+- [x] 发现容器团队已落地 `services/claude/*` 引擎 → 重定边界：本系统消费而非自建上游
 
-### A1 · 数据与账户底座
-- [ ] migrations：`ak_users(含 balance) / ak_api_keys / ak_model_prices / ak_topup_requests`
-- [ ] 注册/登录（复用 `security/jwt_handler`、`password`）：**注册自动充 $20 + 签发首把 key**
-- [ ] `security/api_key_auth.py`：sk-key 生成（前缀+hash）、校验依赖
+### A1 · 数据与账户底座（✅ 完成）
+- [x] migration `0001_apikey_core.sql`：`ak_users(含 balance) / ak_api_keys / ak_model_prices / ak_topup_requests / ak_usage_logs`（含预置模型价）
+- [x] `controller/auth.py` 注册/登录/登出（复用 `jwt_handler`/`password`）：**注册自动充 $20 + 签发首把 key**，写 httponly cookie
+- [x] `security/api_key_auth.py`：sk-key 生成（前缀+sha256 hash）、`authenticate_key` 校验依赖
 
-### A2 · 用户端：Key + 余额 + 充值申请
-- [ ] `controller/portal.py` + `services/apikey/*`：me/余额、key 列表+新建、用量、topup 申请
-- [ ] 前端用户端页面
+### A2 · 用户端：Key + 余额 + 充值申请（✅ 完成）
+- [x] `controller/portal.py` + `services/apikey/{users,keys,topups,usage}.py`：me/余额、key 列表+新建+禁用、用量、topup 申请
+- [x] 前端 `pages/UserDashboard.tsx`（我的 Key / 用量 / 充值）
 
-### A3 · 管理端：审核 + 定价 + 用户
-- [ ] `controller/admin_apikey.py`：topup 审核、调余额、key 管理、模型定价 CRUD、用户管理
-- [ ] 前端管理端审核台 + Key/用户 + 模型定价
+### A3 · 管理端：审核 + 定价 + 用户（✅ 完成）
+- [x] `controller/admin_apikey.py`：topup 审核(批准即加余额)、调余额、key 管理、模型定价 CRUD、用户管理、用量看板聚合
+- [x] `services/apikey/pricing.py` 逐模型计价；前端 `pages/AdminDashboard.tsx`
 
-### A4 · 上游与容器配置
-- [ ] migrations：`ak_credentials / ak_containers`
-- [ ] credentials/containers 的 admin CRUD + sub 健康看板 + relogin 入口
-- [ ] 前端「上游凭据」「容器编排」页
+### A4 · 上游与容器配置（✅ 由容器团队提供，本系统对接）
+- [x] ~~自建 ak_credentials/ak_containers~~ → 改为消费 `services/claude/*`（slot=上游凭据）
+- [x] 前端「上游凭据/容器」页对接 `/api/admin/claude/slots`、`/containers`（健康/拉起/删除）
 
-### A5 · 网关打通
-- [ ] `controller/gateway.py`：`/v1/messages`（Anthropic 兼容，含 SSE 流式）
-- [ ] 路由（选容器）+ 凭据链选择（sub→apikey 降级 = exec 重试注入 `ANTHROPIC_*`）
-- [ ] `services/apikey/exec.py`：`docker exec claude -p`、解析输出/usage、流式
-- [ ] `ak_usage_logs` 落库 + quota 原子扣减
+### A5 · 网关打通（✅ 完成，待真实 slot 联调）
+- [x] `controller/gateway.py`：`/v1/messages`（Anthropic 兼容，含 SSE 流式）+ 裸 `/v1/messages` 给 SDK base_url
+- [x] `services/apikey/runner.py`：复用容器团队路由+容器，跑 `claude -p --output-format json` 拿 usage；sub→apikey 为 slot 池级故障转移
+- [x] `services/apikey/usage.py`：按命中模型计价、原子扣 balance、`ak_usage_logs` 落库；前置校验余额/封顶/模型白名单
+- [ ] **真实 slot 镜像端到端联调**（需容器团队预登录镜像就位）
 
-### A6 · 计费/看板/加固
-- [ ] 用量看板聚合接口 + 前端图表
-- [ ] 限流（rate_limit_rpm）、并发闸、注册/申请防刷
-- [ ] OpenAI 兼容端点（P2，LiteLLM）
+### 测试（✅）
+- [x] `tests/test_apikey_unit.py`（10）：计价/sk-key/prompt 摊平/JSON 解析/微美元换算（无需 DB）
+- [x] `tests/test_apikey_e2e.py`（3）：注册→充值→审核→计费全链（真 PG）+ 网关鉴权 + admin 守卫
+- [x] 全套 32 测试通过；真实 uvicorn cookie 鉴权 + 网关 401 冒烟通过
+
+### A6 · 加固（待办，P2）
+- [ ] 限流（`rate_limit_rpm` 已建字段，未接执行）、并发闸、注册/申请防刷
+- [ ] usage 高频写改 Redis 缓冲批量落库（当前同步写）
+- [ ] OpenAI 兼容端点 `/v1/chat/completions`（P2，LiteLLM）
+- [ ] 多轮 messages→单 prompt 目前为摊平，富对话场景可优化
 
 ---
 
-## 8. 与容器团队的约定接口（已定 = docker exec）
+## 8. 与容器团队的集成（已落地 = 复用 services.claude 引擎）
 
-后端 gateway service **直接 `docker exec`**（复用容器团队的 `docker_manager` / 容器命名约定）：
+容器团队已实现 `services/claude/*`：`registry.get_router()`（HRW 路由，按 user_id）、
+`docker_manager`（容器生命周期 + `exec_claude`）、`health`（探针保活）。本系统：
 
-- 入参：`user_id`、`prompt/messages`、选中的 `container`、选中的 `credential`、是否 stream。
-- subscription 凭据：`docker exec -e HOME=/workspace/<user_id> <container> claude -p ...`（不注入 `ANTHROPIC_*`，用容器烘好的 sub）。
-- apikey 凭据（降级）：同上但加 `-e ANTHROPIC_BASE_URL=... -e ANTHROPIC_AUTH_TOKEN=... -e ANTHROPIC_MODEL=...`。
-- 我们对容器团队的依赖：**容器存在且 sub 凭据可用**（命名/卷/保活由他们保证）；本层只读其约定即可 exec。
+- `services/apikey/runner.py` **复用其路由 + 容器生命周期**，但把执行命令换成
+  `claude --dangerously-skip-permissions --output-format json -p <prompt>`（订阅档可加 `--model`），
+  从 JSON 输出里解析 `usage.input_tokens / output_tokens` 与结果文本 → 供计费。
+- **「sub 用光接 apikey」= slot 池级故障转移**：sub slot 撞 401/限额 → 标 unhealthy →
+  HRW 从候选剔除 → 落到其它健康 slot（可为 api_key slot）。与 `docker_manager.exec_claude` 同构。
+- 用户身份统一用 `controller/claude.py` 的 `_safe_uid(user)`（sha256→`u-...`），保证经
+  `/v1/messages` 与 `/claude/chat` 路由到**同一 slot、同一容器工作目录**。
 
-**需与容器团队对齐的细节**：容器命名规则、`/workspace/<user_id>` 工作区隔离约定、`claude -p` 的输出格式（用于解析 usage tokens）、流式输出方式。
+**集成缝**：runner 触达 `services.claude` 的 `_client/_chown_tree` 等内部 helper。若容器团队
+日后提供「带 usage 的官方 exec」，可改为直接调用并删掉 runner 里的重复执行逻辑。
+
+**计价模型来源**：订阅档 = 请求模型；api_key 档（降级后）= 该 slot 注入的 `ANTHROPIC_MODEL`
+（`runner._billed_model`），符合「降级按实际命中模型计价」。
 
 ---
 
 ## 9. 安全
 
 - sk-key **只存 hash**（如 sha256），库里不留明文；签发时只回一次明文给用户。
-- 上游 apikey / sub token **绝不入库明文**：`ak_credentials.auth_ref` 指向 `.env` 或密钥管理，沿用 `.gitignore` 已含 `.env` 的约定。
+- 上游 apikey / sub token **绝不入库**：由容器团队的 slot 配置（`slots.json` 的 `env` / 预登录镜像）承载，本系统不碰明文。
 - 网关与门户**鉴权隔离**；admin 接口走 `require_admin`（白名单 + DB role 双判，已存在）。
 - 额度/限流防滥用；申请与注册加防刷。
 - 审计：所有签发/审核/调额/吊销留操作日志。
@@ -231,6 +251,7 @@
 ---
 
 ## 11. 变更记录（changelog）
+- **2026-06-27** · **实现完成（后端+前端）**。发现容器团队已落地 `services/claude/*` 引擎 + `controller/claude.py`，遂重定边界：删掉自建 `ak_credentials/ak_containers`，slot 即上游凭据，本系统消费引擎。落地：migration（5 表）、`security/api_key_auth`、`services/apikey/{__init__,pricing,users,keys,topups,usage,runner}`、`controller/{auth,portal,admin_apikey,gateway}`、前端（api 客户端 + Login + User/Admin 仪表盘 + ui.css）。`runner.py` 跑 `claude --output-format json` 拿 token 计费；sub→apikey = slot 池故障转移；统一 `_safe_uid` 路由一致。测试 32 绿（10 单测 + 3 e2e + 容器团队 19），真实 uvicorn cookie 鉴权冒烟通过。**遗留**：真实 slot 镜像联调、限流执行、usage 批量写、OpenAI 兼容（均 A6/P2）。
 - **2026-06-27** · 用户拍板剩余 4 项：计费=token 且**逐模型定价**（新增 `ak_model_prices`，按命中模型计价，降级后按实际模型价）；**自助注册**；**注册自动送 $20 余额**（改用户 `balance` 模型，原"申请单"改为 `ak_topup_requests` 充值申请走 admin 审核）；**按 user_id 路由**。同步 §3 表结构、§4 计费步、§5 增 `/auth/*` 与 `/admin/model-prices`、§6/§7/§10。设计确认(A0)完成，待容器团队对齐 exec 细节后进 A1。
 - **2026-06-27** · 用户拍板三项：投递 = `docker exec`（HTTPS→后端 exec→返回）；sub→apikey 降级在网关/后端层（exec 重试注入 `ANTHROPIC_*` env）；下游只做 Anthropic 兼容（OpenAI 延后）。同步 §4/§5.3/§8/§10/A5。待确认收敛到 4 项（计费单位/用户来源/审核策略/sticky 维度）。
 - **2026-06-27** · 初版草案：确立"上游凭据(slot)/容器/下游 sk-key/申请/用量"五件套数据模型；明确与容器团队边界（只管理不实现容器）；定义网关链路与 sub→apikey 降级=容器凭据链；列出 A0–A6 里程碑与 6 项待确认。**未动代码，等用户确认。**

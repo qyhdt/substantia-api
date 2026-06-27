@@ -1,122 +1,67 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect, useState } from 'react'
+import './ui.css'
+import { auth, fmtUsd, portal } from './api'
+import { Login } from './pages/Login'
+import { UserDashboard } from './pages/UserDashboard'
+import { AdminDashboard } from './pages/AdminDashboard'
 
-function App() {
-  const [count, setCount] = useState(0)
+type User = { id: number; email: string; role: string; balance_micro_usd?: number }
 
+export default function App() {
+  const [user, setUser] = useState<User | null>(null)
+  const [booting, setBooting] = useState(true)
+  const [firstKey, setFirstKey] = useState<string | undefined>()
+  const [view, setView] = useState<'user' | 'admin'>('user')
+
+  // 启动时用 cookie 探一下是否已登录
+  useEffect(() => {
+    portal.me()
+      .then((me) => setUser(me))
+      .catch(() => setUser(null))
+      .finally(() => setBooting(false))
+  }, [])
+
+  async function refreshBalance() {
+    try {
+      const me = await portal.me()
+      setUser((u) => (u ? { ...u, ...me } : u))
+    } catch { /* ignore */ }
+  }
+  useEffect(() => {
+    if (!user) return
+    const t = setInterval(refreshBalance, 15000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
+  async function logout() {
+    await auth.logout().catch(() => {})
+    setUser(null)
+    setFirstKey(undefined)
+  }
+
+  if (booting) return <div className="ak-app"><p className="ak-muted" style={{ marginTop: 40 }}>加载中…</p></div>
+  if (!user) return <Login onAuthed={(u, key) => { setUser(u); setFirstKey(key); setView('user') }} />
+
+  const isAdmin = user.role === 'admin'
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="ak-app">
+      <div className="ak-top">
+        <div className="ak-brand">Substantia <span>API</span></div>
+        <div className="ak-userbox">
+          {isAdmin && (
+            <div className="ak-tabs" style={{ margin: 0 }}>
+              <div className={`ak-tab ${view === 'user' ? 'active' : ''}`} onClick={() => setView('user')}>用户端</div>
+              <div className={`ak-tab ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')}>管理端</div>
+            </div>
+          )}
+          <span className="ak-balance">{fmtUsd(user.balance_micro_usd)}</span>
+          <span>{user.email}</span>
+          <button className="ak-btn" onClick={logout}>退出</button>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+      </div>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      {view === 'admin' && isAdmin ? <AdminDashboard /> : <UserDashboard newKey={firstKey} />}
+    </div>
   )
 }
-
-export default App

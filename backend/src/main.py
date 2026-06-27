@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from config.version import APP_NAME
-from controller import claude, example, health
+from controller import admin_apikey, auth, claude, example, gateway, health, portal
 from frame.base_api_route import BaseAPIRoute
 from frame.error_handler import register_exception_handlers
 from utils.fastapi_request_context import RequestContextMiddleware
@@ -134,3 +134,10 @@ app.include_router(health.router, prefix="/api")
 app.include_router(example.router, prefix="/api")
 app.include_router(claude.router, prefix="/api")
 app.include_router(claude.admin_router, prefix="/api")
+
+# APIKey 分发系统（下游令牌 / 门户 / 管理 / 网关）
+app.include_router(auth.router, prefix="/api")
+app.include_router(portal.router, prefix="/api")
+app.include_router(admin_apikey.router, prefix="/api")
+app.include_router(gateway.router, prefix="/api")   # /api/v1/messages
+app.include_router(gateway.router)                  # /v1/messages（裸路径，给 SDK base_url 用）
