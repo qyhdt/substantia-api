@@ -42,13 +42,17 @@ class RunnerResult:
         auth_failed: bool,
         attempts: int,
         estimated: bool,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ):
         self.slot_id = slot_id
         self.slot_type = slot_type
         self.model = model
         self.text = text
-        self.prompt_tokens = prompt_tokens
+        self.prompt_tokens = prompt_tokens          # 真正新输入（全价）
         self.completion_tokens = completion_tokens
+        self.cache_read_tokens = cache_read_tokens   # 缓存命中读取（官方 10%）
+        self.cache_write_tokens = cache_write_tokens # 缓存创建写入（官方 125%）
         self.exit_code = exit_code
         self.auth_failed = auth_failed
         self.attempts = attempts
@@ -101,7 +105,10 @@ def _parse_usage(output: str) -> Optional[Dict[str, Any]]:
     if not isinstance(obj, dict):
         return None
     usage = obj.get("usage") or {}
-    in_tok = int(usage.get("input_tokens", 0) or 0) + int(usage.get("cache_read_input_tokens", 0) or 0)
+    # 缓存 token 单独拆出，按官方折扣计价（不再把 cache_read 当全价 input）。
+    in_tok = int(usage.get("input_tokens", 0) or 0)
+    cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+    cache_write = int(usage.get("cache_creation_input_tokens", 0) or 0)
     out_tok = int(usage.get("output_tokens", 0) or 0)
     text = obj.get("result")
     if text is None:
@@ -114,7 +121,9 @@ def _parse_usage(output: str) -> Optional[Dict[str, Any]]:
         actual_model = max(mu.items(), key=lambda kv: (kv[1] or {}).get("costUSD", 0) or 0)[0]
     return {
         "text": text if isinstance(text, str) else json.dumps(text),
-        "in": in_tok, "out": out_tok, "model": actual_model,
+        "in": in_tok, "out": out_tok,
+        "cache_read": cache_read, "cache_write": cache_write,
+        "model": actual_model,
     }
 
 
@@ -152,9 +161,11 @@ def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResul
 
     parsed = _parse_usage(out)
     estimated = parsed is None
+    cache_read = cache_write = 0
     if parsed is not None:
         text, in_tok, out_tok = parsed["text"], parsed["in"], parsed["out"]
-        if in_tok == 0 and out_tok == 0:  # 输出是 JSON 但没 usage 字段
+        cache_read, cache_write = parsed.get("cache_read", 0), parsed.get("cache_write", 0)
+        if in_tok == 0 and out_tok == 0 and cache_read == 0 and cache_write == 0:  # JSON 但无 usage 字段
             estimated = True
             in_tok, out_tok = _estimate_tokens(prompt), _estimate_tokens(text)
     else:
@@ -167,6 +178,7 @@ def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResul
         slot_id=slot.id, slot_type=slot.type.value,
         model=billed_model, text=text,
         prompt_tokens=in_tok, completion_tokens=out_tok,
+        cache_read_tokens=cache_read, cache_write_tokens=cache_write,
         exit_code=res.exit_code, auth_failed=auth_failed, attempts=1, estimated=estimated,
     )
 

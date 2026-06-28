@@ -56,12 +56,27 @@ def test_parse_usage_json():
 
 
 def test_parse_usage_real_claude_output():
-    # 真实 claude --output-format json：含 cache_read 与 modelUsage（取成本最高者为计价模型）
-    out = ('{"result":"pong","usage":{"input_tokens":2465,"cache_read_input_tokens":16811,"output_tokens":4},'
+    # 真实 claude --output-format json：含 cache_read/cache_creation 与 modelUsage（取成本最高者为计价模型）。
+    # 缓存 token 单独拆出（不再并进 input），供按官方折扣计价。
+    out = ('{"result":"pong","usage":{"input_tokens":2465,"cache_read_input_tokens":16811,'
+           '"cache_creation_input_tokens":1801,"output_tokens":4},'
            '"modelUsage":{"claude-haiku-4-5-20251001":{"costUSD":0.0005},"claude-opus-4-8":{"costUSD":0.0321}}}')
     p = _parse_usage(out)
-    assert p["in"] == 2465 + 16811 and p["out"] == 4
+    assert p["in"] == 2465 and p["out"] == 4
+    assert p["cache_read"] == 16811 and p["cache_write"] == 1801
     assert p["model"] == "claude-opus-4-8"
+
+
+def test_cache_price_derivation():
+    # 缓存价：表里有非 0 值就用；为 0 时按官方比例从输入价派生（read 10% / write 125%）。
+    from services.apikey.pricing import _cache_read_price, _cache_write_price
+    # opus-4-8 实付输入价 2500 micro/1k → read=250, write=3125
+    p0 = {"input_micro_usd_per_1k": 2500, "cache_read_micro_usd_per_1k": 0, "cache_write_micro_usd_per_1k": 0}
+    assert _cache_read_price(p0) == 250
+    assert _cache_write_price(p0) == 3125
+    # 显式设过价则原样用
+    p1 = {"input_micro_usd_per_1k": 2500, "cache_read_micro_usd_per_1k": 99, "cache_write_micro_usd_per_1k": 111}
+    assert _cache_read_price(p1) == 99 and _cache_write_price(p1) == 111
 
 
 def test_cli_model_normalize():
