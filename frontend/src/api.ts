@@ -27,9 +27,19 @@ export const api = {
 }
 
 // ---------- 鉴权 ----------
+export type RegisterPayload = {
+  email: string; password: string
+  captcha_id: string; captcha_text: string
+  email_code?: string; device_id?: string
+}
 export const auth = {
-  register: (email: string, password: string) => api.post('/auth/register', { email, password }),
-  login: (email: string, password: string) => api.post('/auth/login', { email, password }),
+  signupConfig: () => api.get<{ captcha_required: boolean; email_verify_required: boolean }>('/auth/signup-config'),
+  captcha: () => api.get<{ captcha_id: string; image: string }>('/auth/captcha'),
+  sendEmailCode: (email: string, captcha_id: string, captcha_text: string) =>
+    api.post('/auth/send-email-code', { email, captcha_id, captcha_text }),
+  register: (p: RegisterPayload) => api.post('/auth/register', p),
+  login: (email: string, password: string, captcha_id: string, captcha_text: string) =>
+    api.post('/auth/login', { email, password, captcha_id, captcha_text }),
   logout: () => api.post('/auth/logout'),
   me: () => api.get('/portal/me'),
 }

@@ -33,6 +33,21 @@ class Settings(BaseSettings):
     # 业务侧若希望把额外请求头并入 request_context，列在这里（CSV 字符串，取列表用 extra_context_headers_list）
     EXTRA_CONTEXT_HEADERS: str = ""
 
+    # ---------- 注册/登录：图形验证码 + 邮箱验证码 ----------
+    # 注册/登录是否要求图形验证码（自建 SVG，无外部依赖）。默认开。
+    CAPTCHA_REQUIRED: bool = True
+    # 邮箱验证码 SMTP（Gmail 应用专用密码）。HOST+USER+PASS 齐全即视为「已配置」，注册自动要求邮箱验证。
+    SMTP_HOST: str = ""              # 如 smtp.gmail.com
+    SMTP_PORT: int = 587            # 587 = STARTTLS；465 = SSL
+    SMTP_USER: str = ""             # 如 qqyhdt@gmail.com
+    SMTP_PASS: str = ""             # 16 位应用专用密码（非账号密码）
+    SMTP_FROM: str = ""             # 发件人，留空回落 SMTP_USER
+    SMTP_FROM_NAME: str = "Substantia"   # 发件人显示名
+    EMAIL_CODE_TTL: int = 600        # 验证码有效期（秒），默认 10 分钟
+    EMAIL_CODE_RESEND_SECONDS: int = 60  # 同邮箱最短重发间隔（秒）
+    # 强制要求注册邮箱验证：true=必须（即使没配 SMTP 也拦）；false=未配 SMTP 时自动跳过（平滑上线）
+    EMAIL_VERIFY_REQUIRED: bool = False
+
     # ---------- CORS ----------
     # CSV 字符串；取列表用 settings.cors_origins_list
     CORS_ORIGINS: str = ""

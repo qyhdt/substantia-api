@@ -33,8 +33,10 @@ async def get_by_email(email: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None  # 含 password_hash，供登录校验
 
 
-async def register(email: str, password: str) -> Dict[str, Any]:
-    """注册：建用户(自动充 $20 余额) + 签发首把默认 key（事务）。
+async def register(email: str, password: str, *, device_id: Optional[str] = None,
+                   ip: Optional[str] = None) -> Dict[str, Any]:
+    """注册：建用户 + 签发首把默认 key（事务）。
+    设备/IP 去重赠送：同一 device_id 或 ip 已领过 $20 → 本次 trial=0（账号照样建）。
     返回 {user, api_key_plain}。邮箱已存在 → 409。"""
     email = email.strip().lower()
     if await get_by_email(email):
@@ -43,24 +45,47 @@ async def register(email: str, password: str) -> Dict[str, Any]:
     # bootstrap admin：邮箱在白名单则注册即 admin
     role = "admin" if email in {e.lower() for e in settings.admin_emails_list} else "user"
     pwd_hash = hash_password(password)
-    trial = settings.AK_TRIAL_GRANT_MICRO_USD
+    trial_grant = settings.AK_TRIAL_GRANT_MICRO_USD
     trial_days = settings.AK_TRIAL_EXPIRE_DAYS
+    dev = (device_id or "").strip() or None
+    ip = (ip or "").strip() or None
 
     async with db_util.transaction() as conn:
-        # 注册赠送进「试用桶」，有效期 trial_days 天；实付桶（balance）初始 0
+        # 设备/IP 去重：任一已领过赠送 → 本次不送（防清缓存反复注册薅 $20）
+        granted_before = await conn.fetchval(
+            """
+            SELECT EXISTS(
+                SELECT 1 FROM ak_signup_grants
+                WHERE granted_micro_usd > 0
+                  AND ( ($1::text IS NOT NULL AND device_id = $1)
+                     OR ($2::text IS NOT NULL AND ip = $2) )
+            )
+            """,
+            dev, ip,
+        )
+        trial = 0 if granted_before else trial_grant
+        # 赠送进「试用桶」，有效期 trial_days 天（trial=0 时不设过期）；实付桶（balance）初始 0
         urow = await conn.fetchrow(
             """
             INSERT INTO ak_users (email, password_hash, role, balance_micro_usd,
                                   trial_micro_usd, trial_expires_at)
-            VALUES ($1, $2, $3, 0, $4, now() + make_interval(days => $5))
+            VALUES ($1, $2, $3, 0, $4,
+                    CASE WHEN $4 > 0 THEN now() + make_interval(days => $5) ELSE NULL END)
             RETURNING *
             """,
             email, pwd_hash, role, trial, int(trial_days),
         )
         user = _public(dict(urow))
+        # 记录本次发放（trial=0 也记，便于审计；去重判断只看 granted>0）
+        await conn.execute(
+            "INSERT INTO ak_signup_grants (user_id, device_id, ip, granted_micro_usd) "
+            "VALUES ($1, $2, $3, $4)",
+            user["id"], dev, ip, trial,
+        )
         issued = await keys_svc.issue_key(user["id"], name="default", conn=conn)
 
-    log.info("ak_register email=%s id=%s trial_micro=%s", email, user["id"], trial)
+    log.info("ak_register email=%s id=%s trial_micro=%s device=%s ip=%s granted_before=%s",
+             email, user["id"], trial, dev, ip, granted_before)
     return {"user": user, "api_key_plain": issued["plain"], "api_key": issued["key"]}
 
 

@@ -55,6 +55,14 @@ const DICT = {
     to_login: '去登录',
     submitting: '提交中…',
     failed: '失败',
+    captcha: '图形验证码',
+    captcha_refresh: '点击刷新',
+    email_code: '邮箱验证码',
+    send_code: '发送验证码',
+    sending: '发送中…',
+    code_sent: '验证码已发送，请查收邮箱（含垃圾箱）',
+    enter_email_first: '请先填写邮箱',
+    enter_captcha_first: '请先填图形验证码',
 
     // 顶栏试用 banner
     trial_banner_1: '你有试用额度',
@@ -211,6 +219,14 @@ const DICT = {
     to_login: 'Log in',
     submitting: 'Submitting…',
     failed: 'Failed',
+    captcha: 'Captcha',
+    captcha_refresh: 'Click to refresh',
+    email_code: 'Email code',
+    send_code: 'Send code',
+    sending: 'Sending…',
+    code_sent: 'Code sent — check your inbox/spam',
+    enter_email_first: 'Enter email first',
+    enter_captcha_first: 'Enter the captcha first',
 
     // top-bar trial banner
     trial_banner_1: 'You have trial credit',
