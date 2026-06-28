@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     POLAR_SANDBOX: bool = False        # true=sandbox-api.polar.sh
     # 支付成功后跳回的站内地址
     PAYMENT_RETURN_URL: str = "https://dev.substantia.ai/"
+    # 充值页直达地址（?tab=topups 让前端直接打开「充值」标签页）；用于余额不足时的引导文案
+    RECHARGE_URL: str = "https://dev.substantia.ai/?tab=topups"
 
     # ---------- APIKey 分发（下游令牌 / 计费 / 网关）----------
     # 新用户注册自动赠送的余额（微美元，$1 = 1_000_000）。默认 $20。进「试用桶」。

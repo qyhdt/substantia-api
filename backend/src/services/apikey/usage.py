@@ -22,7 +22,10 @@ def precheck(key: Dict[str, Any], user: Dict[str, Any], model: str) -> None:
     user 为含 balance/trial 字段的 dict；有效余额 = 实付 + 有效试用。"""
     from services.apikey.balance import effective_balance
     if settings.AK_ENFORCE_BALANCE and effective_balance(user) <= 0:
-        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="insufficient balance")
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"insufficient balance — 余额不足，请前往 {settings.RECHARGE_URL} 充值后继续",
+        )
 
     cap = key.get("quota_cap_micro_usd")
     if cap is not None and (key.get("spent_micro_usd") or 0) >= cap:

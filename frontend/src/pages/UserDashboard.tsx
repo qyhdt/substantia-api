@@ -47,9 +47,15 @@ function CopyBtn({ text, label }: { text: string; label?: string }) {
   }}>{done ? t('copied') : (label ?? t('copy'))}</button>
 }
 
+// 从 URL ?tab=topups 读初始标签页，让「去充值」类深链能直接落到充值页（默认 keys）
+function initialTab(): 'keys' | 'usage' | 'topups' {
+  const q = new URLSearchParams(window.location.search).get('tab')
+  return q === 'topups' || q === 'usage' ? q : 'keys'
+}
+
 export function UserDashboard({ newKey }: { newKey?: string }) {
   const { t } = useI18n()
-  const [tab, setTab] = useState<'keys' | 'usage' | 'topups'>('keys')
+  const [tab, setTab] = useState<'keys' | 'usage' | 'topups'>(initialTab)
   const tabLabel: Record<typeof tab, TKey> = { keys: 'tab_keys', usage: 'tab_usage', topups: 'tab_topups' }
   return (
     <>
