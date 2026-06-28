@@ -92,10 +92,10 @@ def container_prompt_path(user_id: str) -> str:
 
 
 def shell_exec_claude(user_id: str, *claude_args: str) -> List[str]:
-    """Build `sh -lc 'claude ... -p "$(cat prompt-file)"'` argv for docker exec."""
+    """Build `cat prompt | claude -p ...` so prompt never lands on argv (E2BIG fix)."""
     path = shlex.quote(container_prompt_path(user_id))
-    parts = ["claude", "--dangerously-skip-permissions", *claude_args]
-    shell = " ".join(shlex.quote(p) for p in parts) + f" -p \"$(cat {path})\""
+    parts = ["claude", "--dangerously-skip-permissions", "-p", *claude_args]
+    shell = f"cat {path} | " + " ".join(shlex.quote(p) for p in parts)
     return ["sh", "-lc", shell]
 
 

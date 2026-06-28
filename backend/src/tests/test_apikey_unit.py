@@ -95,5 +95,7 @@ def test_shell_exec_claude_keeps_prompt_off_argv():
     argv = shell_exec_claude("u-test", "--output-format", "json")
     joined = " ".join(argv)
     assert argv[0:2] == ["sh", "-lc"]
-    assert _PROMPT_FILE in joined and "cat" in joined
+    assert _PROMPT_FILE in joined and "cat" in joined and "|" in joined
+    assert "-p" in joined
+    assert "$(cat" not in joined
     assert huge not in joined
