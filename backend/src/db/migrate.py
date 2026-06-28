@@ -32,14 +32,32 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 """
 
 
+class DuplicateMigrationError(RuntimeError):
+    """两个迁移文件用了同一个版本号前缀（如 0008_a.sql 与 0008_b.sql）。
+
+    ledger 以 4 位前缀为主键，撞号会导致先跑的记录版本号、后一个被静默跳过
+    （真实事故见 doc/apikey-distribution-plan 变更记录）。启动期 fail-fast 报出来，
+    强制改名，避免迁移悄悄不生效。
+    """
+
+
 def _discover() -> List[Tuple[str, Path]]:
+    """扫描并按文件名排序返回 (version, path)。版本号前缀必须唯一，撞号即抛错。"""
     files: List[Tuple[str, Path]] = []
+    seen: dict[str, Path] = {}
     for p in sorted(MIGRATIONS_DIR.glob("*.sql")):
         m = FILENAME_RE.match(p.name)
         if not m:
             log.warning("skip migration with non-conforming name: %s", p.name)
             continue
-        files.append((m.group(1), p))
+        version = m.group(1)
+        if version in seen:
+            raise DuplicateMigrationError(
+                f"重复的 migration 版本号 {version!r}：{seen[version].name} 与 {p.name}。"
+                f"请把其中之一改成下一个未占用的编号（ledger 按前缀去重，撞号会导致某个迁移被静默跳过）。"
+            )
+        seen[version] = p
+        files.append((version, p))
     return files
 
 
