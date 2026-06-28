@@ -150,6 +150,15 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .lp-off { color: var(--muted); text-decoration: line-through; font-size: 12px; }
 .lp-now { color: var(--accent-2); font-size: 14px; }
 
+/* 调用示例折叠 */
+.ak-accordion { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+.ak-accordion-h {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; cursor: pointer; background: var(--panel-2);
+}
+.ak-accordion-h:hover { background: #eef1f5; }
+.ak-accordion-b { padding: 14px; border-top: 1px solid var(--border); }
+
 /* 弹窗 */
 .ak-modal-bg {
   position: fixed; inset: 0; background: rgba(16,24,40,.45);

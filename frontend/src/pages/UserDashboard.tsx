@@ -2,11 +2,24 @@ import { useState } from 'react'
 import { fmtUsd, portal } from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 
-const curlFor = (key: string) => `curl https://api.substantia.ai/v1/messages \\
-  -H "x-api-key: ${key}" -H "content-type: application/json" \\
-  -d '{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hello"}]}'`
-
-const GATEWAY_HINT = curlFor('<你的 sk-key>')
+// 两种协议：Anthropic 兼容 + OpenAI 兼容。同一把 sk-key 通用。
+type Fmt = 'anthropic' | 'openai'
+const ENDPOINTS: Record<Fmt, { title: string; note: string; curl: (k: string) => string }> = {
+  anthropic: {
+    title: 'Anthropic 兼容',
+    note: '官方 anthropic SDK：base_url = https://api.substantia.ai，key 当作 x-api-key',
+    curl: (k) => `curl https://api.substantia.ai/v1/messages \\
+  -H "x-api-key: ${k}" -H "content-type: application/json" \\
+  -d '{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hello"}]}'`,
+  },
+  openai: {
+    title: 'OpenAI 兼容',
+    note: '官方 openai SDK：base_url = https://api.substantia.ai/v1，key 当作 api_key（Bearer）',
+    curl: (k) => `curl https://api.substantia.ai/v1/chat/completions \\
+  -H "Authorization: Bearer ${k}" -H "content-type: application/json" \\
+  -d '{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hello"}]}'`,
+  },
+}
 
 async function copyText(text: string) {
   try {
@@ -50,6 +63,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
   const [name, setName] = useState('default')
   const [busy, setBusy] = useState(false)
   const [pick, setPick] = useState<any[] | null>(null)   // 多 key 时弹窗候选
+  const [pickFmt, setPickFmt] = useState<Fmt>('anthropic')
+  const [open, setOpen] = useState<Fmt | null>('anthropic') // 当前展开的协议示例
   const [hint, setHint] = useState<string | null>(null)
 
   async function create() {
@@ -72,8 +87,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
     state.reload()
   }
 
-  // 一键复制可直接运行的测试 curl：自动填入真实 key。多个可用 key 时弹窗选。
-  async function copyTestCurl() {
+  // 一键复制可直接运行的测试 curl（指定协议）：自动填入真实 key。多个可用 key 时弹窗选。
+  async function copyTestCurl(fmt: Fmt) {
     const keys: any[] = (state.data as any[]) || []
     const usable = keys.filter((k) => k.key_plain && k.status === 'active')
     if (usable.length === 0) {
@@ -82,12 +97,12 @@ function Keys({ justIssued }: { justIssued?: string }) {
       return
     }
     if (usable.length === 1) {
-      await copyText(curlFor(usable[0].key_plain))
-      setHint('已复制测试 curl（含 ' + usable[0].name + '）✓')
+      await copyText(ENDPOINTS[fmt].curl(usable[0].key_plain))
+      setHint('已复制 ' + ENDPOINTS[fmt].title + ' curl（含 ' + usable[0].name + '）✓')
       setTimeout(() => setHint(null), 2500)
       return
     }
-    setPick(usable)  // 多个 → 弹窗选
+    setPickFmt(fmt); setPick(usable)  // 多个 → 弹窗选
   }
 
   return (
@@ -99,11 +114,6 @@ function Keys({ justIssued }: { justIssued?: string }) {
             <CopyBtn text={banner} label="复制 Key" />
           </div>
           <div className="ak-mono" style={{ marginTop: 6 }}>{banner}</div>
-          <div className="ak-row" style={{ justifyContent: 'space-between', marginTop: 12 }}>
-            <b>测试 curl（已填入你的 key，可直接运行）：</b>
-            <CopyBtn text={curlFor(banner)} label="复制 curl" />
-          </div>
-          <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: '6px 0 0' }}>{curlFor(banner)}</pre>
         </div>
       )}
       <Card title="新建 Key" actions={
@@ -112,24 +122,43 @@ function Keys({ justIssued }: { justIssued?: string }) {
           <button className="ak-btn primary" onClick={create} disabled={busy}>生成</button>
         </div>
       }>
-        <p className="ak-muted">把 key 当作 Anthropic 的 <code>x-api-key</code> 用，base_url 指向本网关：</p>
-        <div className="ak-row" style={{ justifyContent: 'flex-end', marginBottom: 6, gap: 8 }}>
-          {hint && <span className="ak-ok" style={{ margin: 0 }}>{hint}</span>}
-          <button className="ak-btn primary" onClick={copyTestCurl}>一键复制测试 curl（自动填入 key）</button>
-        </div>
-        <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{GATEWAY_HINT}</pre>
+        <p className="ak-muted">把 key 当作下游网关的密钥用，同时支持 <b>Anthropic</b> 和 <b>OpenAI</b> 两种协议，点开看示例：</p>
+        {hint && <div className="ak-ok" style={{ marginBottom: 8 }}>{hint}</div>}
+        {(['anthropic', 'openai'] as Fmt[]).map((fmt) => {
+          const e = ENDPOINTS[fmt]
+          const expanded = open === fmt
+          const sample = banner ? e.curl(banner) : e.curl('<你的 sk-key>')
+          return (
+            <div key={fmt} className="ak-accordion">
+              <div className="ak-accordion-h" onClick={() => setOpen(expanded ? null : fmt)}>
+                <b>{e.title}</b>
+                <span className="ak-muted" style={{ fontSize: 12 }}>{expanded ? '收起 ▲' : '点开查看 ▼'}</span>
+              </div>
+              {expanded && (
+                <div className="ak-accordion-b">
+                  <p className="ak-muted" style={{ fontSize: 12, margin: '0 0 8px' }}>{e.note}</p>
+                  <div className="ak-row" style={{ justifyContent: 'flex-end', gap: 8, marginBottom: 6 }}>
+                    <CopyBtn text={e.curl('<你的 sk-key>')} label="复制示例" />
+                    <button className="ak-btn primary" onClick={() => copyTestCurl(fmt)}>一键复制（填入真实 key）</button>
+                  </div>
+                  <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{sample}</pre>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </Card>
 
       {pick && (
         <div className="ak-modal-bg" onClick={() => setPick(null)}>
           <div className="ak-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>选择一个 Key 生成测试 curl</h3>
+            <h3 style={{ marginTop: 0 }}>选择一个 Key 生成 {ENDPOINTS[pickFmt].title} curl</h3>
             {pick.map((k) => (
               <button key={k.id} className="ak-btn" style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 8 }}
                 onClick={async () => {
-                  await copyText(curlFor(k.key_plain))
+                  await copyText(ENDPOINTS[pickFmt].curl(k.key_plain))
                   setPick(null)
-                  setHint('已复制测试 curl（含 ' + k.name + '）✓')
+                  setHint('已复制 ' + ENDPOINTS[pickFmt].title + ' curl（含 ' + k.name + '）✓')
                   setTimeout(() => setHint(null), 2500)
                 }}>
                 {k.name} · <span className="ak-mono">{k.key_prefix}</span>
