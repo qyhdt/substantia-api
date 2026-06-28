@@ -164,6 +164,8 @@ async def _run_and_bill(key: dict, user: dict, model: str, prompt: str, request:
     billed = await usage_svc.record_and_charge(
         api_key_id=key["id"], user_id=user["id"], slot_id=result.slot_id, model=result.model,
         prompt_tokens=result.prompt_tokens, completion_tokens=result.completion_tokens,
+        cache_read_tokens=getattr(result, "cache_read_tokens", 0),
+        cache_write_tokens=getattr(result, "cache_write_tokens", 0),
         latency_ms=latency_ms, attempts=result.attempts,
         status_str=("ok" if result.ok else "error"),
         error_code=(None if result.ok else f"exit_{result.exit_code}"),
@@ -174,19 +176,26 @@ async def _run_and_bill(key: dict, user: dict, model: str, prompt: str, request:
 
 # ============================ 原生透传（带 tools 走这条，支持 agent 工具调用）============================
 async def _bill_pt(key, user, model, in_tok, out_tok, latency_ms, request, *, slot_id=None,
-                   status="ok", error_code=None):
+                   cache_read=0, cache_write=0, status="ok", error_code=None):
     request_id = (request_context.get({}) or {}).get("trace_id")
     return await usage_svc.record_and_charge(
         api_key_id=key["id"], user_id=user["id"], slot_id=slot_id, model=model,
         prompt_tokens=in_tok, completion_tokens=out_tok, latency_ms=latency_ms,
+        cache_read_tokens=cache_read, cache_write_tokens=cache_write,
         attempts=1, status_str=status, error_code=error_code, request_id=request_id,
     )
 
 
 def _usage_anthropic(data: dict):
+    """从 Anthropic 响应抽 (input, output, cache_read, cache_write)。缓存 token 单独返回，
+    不再并进 input（计价时按官方折扣，见 services/apikey/pricing.py）。"""
     u = (data or {}).get("usage") or {}
-    return (int(u.get("input_tokens", 0) or 0) + int(u.get("cache_read_input_tokens", 0) or 0),
-            int(u.get("output_tokens", 0) or 0))
+    return (
+        int(u.get("input_tokens", 0) or 0),
+        int(u.get("output_tokens", 0) or 0),
+        int(u.get("cache_read_input_tokens", 0) or 0),
+        int(u.get("cache_creation_input_tokens", 0) or 0),
+    )
 
 
 async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Request):
@@ -228,8 +237,9 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
             except Exception:
                 data = {"error": {"type": "upstream", "message": r.text[:500]}}
             if r.status_code < 300:
-                in_tok, out_tok = _usage_anthropic(data)
-                await _bill_pt(key, user, data.get("model") or model, in_tok, out_tok, latency, request, slot_id=slot.id)
+                in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
+                await _bill_pt(key, user, data.get("model") or model, in_tok, out_tok, latency, request,
+                               slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok)
             return JSONResponse(data, status_code=r.status_code)
         return JSONResponse(
             (last.json() if last is not None else {"error": "all upstream credentials failed auth"}),
@@ -262,10 +272,15 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
             text = b"".join(buf).decode("utf-8", "replace")
             mi = re.search(r'"input_tokens"\s*:\s*(\d+)', text)
             mo = re.findall(r'"output_tokens"\s*:\s*(\d+)', text)
+            mcr = re.search(r'"cache_read_input_tokens"\s*:\s*(\d+)', text)
+            mcw = re.search(r'"cache_creation_input_tokens"\s*:\s*(\d+)', text)
             in_tok = int(mi.group(1)) if mi else 0
             out_tok = int(mo[-1]) if mo else 0
+            cr_tok = int(mcr.group(1)) if mcr else 0
+            cw_tok = int(mcw.group(1)) if mcw else 0
             await _bill_pt(key, user, model, in_tok, out_tok,
-                           int((time.monotonic() - started) * 1000), request, slot_id=slot.id)
+                           int((time.monotonic() - started) * 1000), request, slot_id=slot.id,
+                           cache_read=cr_tok, cache_write=cw_tok)
 
     return sse_response(gen())
 
@@ -406,8 +421,9 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
         if r.status_code >= 300:
             msg = (data.get("error") or {}).get("message") or r.text[:300]
             return JSONResponse({"error": {"message": msg, "type": "upstream_error"}}, status_code=r.status_code)
-        in_tok, out_tok = _usage_anthropic(data)
-        await _bill_pt(key, user, data.get("model") or model, in_tok, out_tok, latency, request, slot_id=slot.id)
+        in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
+        await _bill_pt(key, user, data.get("model") or model, in_tok, out_tok, latency, request,
+                       slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok)
         comp = pt.anthropic_to_openai(data)
         if want_stream:
             chunks = pt.openai_stream_chunks(comp)

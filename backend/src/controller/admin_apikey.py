@@ -114,6 +114,9 @@ class PriceIn(BaseModel):
     display_name: Optional[str] = None
     input_micro_usd_per_1k: int = Field(ge=0)
     output_micro_usd_per_1k: int = Field(ge=0)
+    # 缓存价可选；不传则按官方比例从输入价派生（read 10% / write 125%）。
+    cache_read_micro_usd_per_1k: Optional[int] = Field(default=None, ge=0)
+    cache_write_micro_usd_per_1k: Optional[int] = Field(default=None, ge=0)
     enabled: bool = True
 
 
@@ -128,6 +131,8 @@ async def upsert_price(payload: PriceIn):
         payload.model, display_name=payload.display_name,
         input_micro_usd_per_1k=payload.input_micro_usd_per_1k,
         output_micro_usd_per_1k=payload.output_micro_usd_per_1k,
+        cache_read_micro_usd_per_1k=payload.cache_read_micro_usd_per_1k,
+        cache_write_micro_usd_per_1k=payload.cache_write_micro_usd_per_1k,
         enabled=payload.enabled,
     )
 

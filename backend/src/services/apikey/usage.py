@@ -52,13 +52,23 @@ async def record_and_charge(
     completion_tokens: int,
     latency_ms: int,
     attempts: int = 1,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
     status_str: str = "ok",
     error_code: Optional[str] = None,
     request_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """算成本 → 扣用户余额 + 累加 key 花费 + 写 usage 日志（一个事务）。返回 {cost_micro_usd, ...}。"""
-    total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
-    cost = await pricing.compute_cost_micro_usd(model, prompt_tokens, completion_tokens)
+    """算成本 → 扣用户余额 + 累加 key 花费 + 写 usage 日志（一个事务）。返回 {cost_micro_usd, ...}。
+
+    缓存 token 单独按官方折扣计价（read 10% / write 125%）。total_tokens 计入全部
+    （新输入 + 缓存读 + 缓存写 + 输出），便于用量展示；计价按各自单价。"""
+    cache_read_tokens = cache_read_tokens or 0
+    cache_write_tokens = cache_write_tokens or 0
+    total_tokens = (prompt_tokens or 0) + (completion_tokens or 0) + cache_read_tokens + cache_write_tokens
+    cost = await pricing.compute_cost_micro_usd(
+        model, prompt_tokens, completion_tokens,
+        cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
+    )
 
     async with db_util.transaction() as conn:
         if cost > 0:
