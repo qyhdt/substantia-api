@@ -362,11 +362,67 @@ async def list_models(auth: dict = Depends(authenticate_key)):
     }
 
 
-@router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key）")
+async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request):
+    """OpenAI 带 tools 的请求：翻译成 Anthropic → 原生透传（非流式上游）→ 翻译回 OpenAI。"""
+    router = get_router()
+    uid = _safe_uid(user)
+    model = raw.get("model") or settings.AK_DEFAULT_MODEL
+    want_stream = bool(raw.get("stream"))
+    anth = pt.openai_to_anthropic(raw)
+    anth["stream"] = False
+    client_beta = request.headers.get("anthropic-beta")
+    max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS)
+
+    last = None
+    for _ in range(max_attempts):
+        slot = router.route(uid)
+        try:
+            await asyncio.to_thread(dm.ensure_slot_container, slot)
+        except Exception:
+            pass
+        base, headers, oauth = pt.upstream_for(slot, client_beta)
+        body = pt.inject_identity(dict(anth)) if oauth else dict(anth)
+        started = time.monotonic()
+        async with httpx.AsyncClient(timeout=300.0) as c:
+            r = await c.post(f"{base}/v1/messages", headers=headers, json=body)
+        latency = int((time.monotonic() - started) * 1000)
+        if r.status_code == 401 and oauth:
+            router.mark_unhealthy(slot.id, settings.CLAUDE_UNHEALTHY_COOLDOWN_SECONDS)
+            last = r
+            continue
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+        if r.status_code >= 300:
+            msg = (data.get("error") or {}).get("message") or r.text[:300]
+            return JSONResponse({"error": {"message": msg, "type": "upstream_error"}}, status_code=r.status_code)
+        in_tok, out_tok = _usage_anthropic(data)
+        await _bill_pt(key, user, data.get("model") or model, in_tok, out_tok, latency, request, slot_id=slot.id)
+        comp = pt.anthropic_to_openai(data)
+        if want_stream:
+            chunks = pt.openai_stream_chunks(comp)
+
+            async def gen():
+                for ch in chunks:
+                    yield ch
+
+            return sse_response(gen())
+        return JSONResponse(comp)
+    return JSONResponse({"error": {"message": "all upstream credentials failed auth"}},
+                        status_code=(last.status_code if last is not None else 502))
+
+
+@router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key；带 tools 自动走原生透传）")
 async def chat_completions(payload: ChatCompletionsIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
     model = payload.model or settings.AK_DEFAULT_MODEL
     usage_svc.precheck(key, user, model)
+
+    # 带 tools → 翻译透传（支持 agent 工具调用）；否则走 CLI（便宜）
+    raw = await request.json()
+    if raw.get("tools"):
+        return await _passthrough_openai(key, user, raw, request)
 
     # OpenAI 的 system 是 messages 里 role=system 的一条；_build_prompt 已支持
     prompt = _build_prompt(MessagesIn(messages=payload.messages))
