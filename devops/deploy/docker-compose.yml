@@ -34,12 +34,20 @@ services:
     env_file: .env
     environment:
       PORT: "9999"
+      REDIS_HOST: redis
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/substantia/claude:/var/lib/substantia/claude
       - ./logs:/app/logs
     networks: [substantia_net]
-    depends_on: [db]
+    depends_on: [db, redis]
+
+  redis:
+    image: redis:7-alpine
+    container_name: substantia-api-redis
+    restart: unless-stopped
+    networks: [substantia_net]
+    oom_score_adj: -300  # 验证码/邮箱码存这；宿主 OOM 时别优先杀
 
   web:
     build:
