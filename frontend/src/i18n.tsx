@@ -161,6 +161,9 @@ const DICT = {
     empty_usage: '还没有调用记录',
 
     // 充值
+    bonus_tiers_title: '充值赠送（充得越多送越多）',
+    recharge_credited: '到账',
+    bonus_word: '赠送',
     card_recharge: '充值（信用卡 / 支付宝 / 微信）',
     recharge_go: '去支付',
     recharge_going: '跳转中…',
@@ -325,6 +328,9 @@ const DICT = {
     empty_usage: 'No calls yet',
 
     // top up
+    bonus_tiers_title: 'Top-up bonus (spend more, get more)',
+    recharge_credited: 'You get',
+    bonus_word: 'bonus',
     card_recharge: 'Top up (card / Alipay / WeChat)',
     recharge_go: 'Pay',
     recharge_going: 'Redirecting…',

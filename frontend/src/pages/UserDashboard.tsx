@@ -289,9 +289,20 @@ function Topups() {
   const [pageSize, setPageSize] = useState(50)
   const state = useAsync(() => portal.payments(pageSize, (page - 1) * pageSize), [page, pageSize])
   const enabled = useAsync(() => portal.rechargeEnabled(), [])
-  const [amount, setAmount] = useState(10)
+  const tiers: { threshold_usd: number; bonus_usd: number }[] = enabled.data?.bonus_tiers || [
+    { threshold_usd: 20, bonus_usd: 2 }, { threshold_usd: 50, bonus_usd: 10 }, { threshold_usd: 100, bonus_usd: 25 },
+  ]
+  const presets = tiers.map((x) => x.threshold_usd)
+  const [amount, setAmount] = useState(20)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+
+  const bonusFor = (usd: number) => {
+    let b = 0
+    for (const tr of tiers) if (usd + 1e-9 >= tr.threshold_usd) b = tr.bonus_usd
+    return b
+  }
+  const curBonus = bonusFor(amount)
 
   async function go() {
     setBusy(true); setMsg(null)
@@ -307,13 +318,27 @@ function Topups() {
     <>
       <Card title={t('card_recharge')}>
         <div className="ak-row">
-          {[10, 50, 100].map((v) => (
-            <button key={v} className={`ak-btn ${amount === v ? 'primary' : ''}`} onClick={() => setAmount(v)}>${v}</button>
-          ))}
+          {presets.map((v) => {
+            const b = bonusFor(v)
+            return (
+              <button key={v} className={`ak-btn ${amount === v ? 'primary' : ''}`} onClick={() => setAmount(v)}>
+                ${v}{b > 0 && <span style={{ color: '#16a34a', marginLeft: 4, fontSize: 12 }}>+${b}</span>}
+              </button>
+            )
+          })}
           <input className="ak-input" type="number" value={amount} min={1}
             onChange={(e) => setAmount(Number(e.target.value))} style={{ width: 100 }} />
           <span className="ak-muted">USD</span>
           <button className="ak-btn primary" disabled={busy || !!off} onClick={go}>{busy ? t('recharge_going') : t('recharge_go')}</button>
+        </div>
+        {curBonus > 0 && (
+          <div style={{ marginTop: 8, fontSize: 13 }}>
+            {t('recharge_credited')} <b>${amount + curBonus}</b>
+            <span style={{ color: '#16a34a', marginLeft: 6 }}>(+${curBonus} {t('bonus_word')})</span>
+          </div>
+        )}
+        <div className="ak-muted" style={{ marginTop: 8, fontSize: 12 }}>
+          {t('bonus_tiers_title')}: {tiers.map((tr) => `$${tr.threshold_usd}→+$${tr.bonus_usd}`).join(' · ')}
         </div>
         {off && <div className="ak-muted" style={{ marginTop: 8 }}>{t('recharge_off')}</div>}
         {msg && <div className="ak-err">{msg}</div>}

@@ -65,7 +65,7 @@ export default function App() {
       <Login
         initialMode={authMode}
         onBack={() => setAuthView('landing')}
-        onAuthed={(u, key) => { localStorage.setItem('sa_session', '1'); setUser(u); setFirstKey(key); setView('user') }}
+        onAuthed={(u, key) => { localStorage.setItem('sa_session', '1'); setUser(u); setFirstKey(key); setView('user'); refreshBalance() }}
       />
     )
   }

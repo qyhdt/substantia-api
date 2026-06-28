@@ -107,9 +107,10 @@ async def submit_topup(payload: TopupIn, user: dict = Depends(current_user)):
 
 
 # ---------- 自助充值（Polar）----------
-@router.get("/recharge/enabled", summary="充值渠道是否可用")
+@router.get("/recharge/enabled", summary="充值渠道是否可用 + 赠送档")
 async def recharge_enabled():
-    return {"enabled": payments_svc.configured(), "provider": "polar"}
+    return {"enabled": payments_svc.configured(), "provider": "polar",
+            "bonus_tiers": payments_svc.bonus_tiers()}
 
 
 @router.post("/recharge", summary="自助充值：创建 Polar 结账，返回跳转 URL")

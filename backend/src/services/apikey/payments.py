@@ -47,6 +47,12 @@ def recharge_bonus_micro(paid_micro: int) -> int:
     return 0
 
 
+def bonus_tiers() -> list[dict]:
+    """供前端展示的赠送档（按门槛升序：充 threshold_usd 送 bonus_usd）。"""
+    tiers = [{"threshold_usd": th, "bonus_usd": b} for th, b in RECHARGE_BONUS_TIERS]
+    return sorted(tiers, key=lambda x: x["threshold_usd"])
+
+
 def configured() -> bool:
     return bool(settings.POLAR_ACCESS_TOKEN and settings.POLAR_PRODUCT_ID)
 
