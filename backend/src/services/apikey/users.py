@@ -69,8 +69,8 @@ async def register(email: str, password: str, *, device_id: Optional[str] = None
             """
             INSERT INTO ak_users (email, password_hash, role, balance_micro_usd,
                                   trial_micro_usd, trial_expires_at)
-            VALUES ($1, $2, $3, 0, $4,
-                    CASE WHEN $4 > 0 THEN now() + make_interval(days => $5) ELSE NULL END)
+            VALUES ($1, $2, $3, 0, $4::bigint,
+                    CASE WHEN $4::bigint > 0 THEN now() + make_interval(days => $5) ELSE NULL END)
             RETURNING *
             """,
             email, pwd_hash, role, trial, int(trial_days),
