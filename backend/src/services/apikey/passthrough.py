@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -26,6 +27,49 @@ log = logging.getLogger("ak.passthrough")
 ANTHROPIC_API = "https://api.anthropic.com"
 # 订阅 OAuth 必须的身份系统提示（缺它会被 429/拒）
 CC_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
+
+
+# 规范 Anthropic model id（透传到原生 API 必须用这些精确名）
+_CANON = {
+    "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+    "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5",
+}
+# 无 family 词、仅版本号 → 按版本归属 family（如 Cursor 里随手起名 "claude4.8"）
+_BY_VERSION = {
+    "4-8": "claude-opus-4-8", "4-7": "claude-opus-4-7", "4-6": "claude-sonnet-4-6",
+    "4-5": "claude-haiku-4-5",
+}
+_FAMILY_DEFAULT = {
+    "opus": "claude-opus-4-8", "sonnet": "claude-sonnet-4-6",
+    "haiku": "claude-haiku-4-5", "fable": "claude-fable-5",
+}
+
+
+def normalize_model(m: Optional[str]) -> Optional[str]:
+    """把宽松/带版本点的模型名归一成 Anthropic 认的规范 id。认不出则原样返回。
+
+    例：claude4.8→claude-opus-4-8，opus→claude-opus-4-8，claude-sonnet-4.6→claude-sonnet-4-6。
+    """
+    if not m:
+        return m
+    s = m.strip().lower().replace(" ", "")
+    if s in _CANON:
+        return s
+    s2 = s.replace(".", "-")
+    if s2 in _CANON:
+        return s2
+    fam = next((f for f in _FAMILY_DEFAULT if f in s), None)
+    ver = re.search(r"(\d+)[.\-](\d+)", s)
+    if fam and ver:
+        cand = f"claude-{fam}-{ver.group(1)}-{ver.group(2)}"
+        return cand if cand in _CANON else _FAMILY_DEFAULT[fam]
+    if fam:
+        return _FAMILY_DEFAULT[fam]
+    # 无 family 词、只有版本（claude4.8 / claude-4-6 ...）→ 按版本归属
+    only = re.search(r"^claude-?(\d+)[.\-](\d+)$", s)
+    if only:
+        return _BY_VERSION.get(f"{only.group(1)}-{only.group(2)}", m)
+    return m
 
 
 def slot_oauth_token(slot: Slot) -> Optional[str]:

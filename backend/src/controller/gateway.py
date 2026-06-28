@@ -192,7 +192,8 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
     """带 tools 的请求：拿 slot 凭据直打 api.anthropic.com/v1/messages，原样转发/回传。"""
     router = get_router()
     uid = _safe_uid(user)
-    model = raw.get("model") or settings.AK_DEFAULT_MODEL
+    raw = {**raw, "model": pt.normalize_model(raw.get("model")) or settings.AK_DEFAULT_MODEL}
+    model = raw["model"]
     stream = bool(raw.get("stream"))
     client_beta = request.headers.get("anthropic-beta")
     max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS)
@@ -267,7 +268,7 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
 @router.post("/messages", summary="Anthropic Messages 兼容入口（sk-key；带 tools 自动走原生透传）")
 async def messages(payload: MessagesIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
-    model = payload.model or settings.AK_DEFAULT_MODEL
+    model = pt.normalize_model(payload.model) or settings.AK_DEFAULT_MODEL
     usage_svc.precheck(key, user, model)  # 有效余额 / key 封顶 / 模型白名单
 
     # 带 tools → 原生透传（支持 agent 工具调用）；否则走 CLI（便宜）
@@ -366,7 +367,8 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
     """OpenAI 带 tools 的请求：翻译成 Anthropic → 原生透传（非流式上游）→ 翻译回 OpenAI。"""
     router = get_router()
     uid = _safe_uid(user)
-    model = raw.get("model") or settings.AK_DEFAULT_MODEL
+    raw = {**raw, "model": pt.normalize_model(raw.get("model")) or settings.AK_DEFAULT_MODEL}
+    model = raw["model"]
     want_stream = bool(raw.get("stream"))
     anth = pt.openai_to_anthropic(raw)
     anth["stream"] = False
@@ -416,7 +418,7 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
 @router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key；带 tools 自动走原生透传）")
 async def chat_completions(payload: ChatCompletionsIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
-    model = payload.model or settings.AK_DEFAULT_MODEL
+    model = pt.normalize_model(payload.model) or settings.AK_DEFAULT_MODEL
     usage_svc.precheck(key, user, model)
 
     # 带 tools → 翻译透传（支持 agent 工具调用）；否则走 CLI（便宜）
