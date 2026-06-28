@@ -129,6 +129,98 @@ def inject_identity(body: Dict[str, Any]) -> Dict[str, Any]:
     return body
 
 
+# prompt caching：Anthropic 一次请求最多 4 个 cache_control 断点。
+_CACHE_CONTROL = {"type": "ephemeral"}
+_MAX_BREAKPOINTS = 4
+
+
+def _mark(block: Any) -> bool:
+    """给一个 content block 打 cache_control（仅 dict 块支持）。已打过则视为成功不重复。返回是否占用一个断点。"""
+    if not isinstance(block, dict):
+        return False
+    if "cache_control" in block:
+        return False  # 已有（客户端自己打的），不重复占额度
+    block["cache_control"] = dict(_CACHE_CONTROL)
+    return True
+
+
+def inject_cache_breakpoints(body: Dict[str, Any]) -> Dict[str, Any]:
+    """给透传请求体注入 prompt caching 断点，让多轮 Agent（Cursor 等）重复的
+    system / tools / 历史消息命中缓存（cache_read 仅 10% 价），大幅降本。
+
+    打点策略（按"越稳定越靠前"，至多 4 个，倒序消耗额度以优先缓存最大、最稳定的前缀）：
+      1) tools 最后一项     —— 工具定义每轮不变，通常最大块
+      2) system 最后一块    —— 系统提示稳定
+      3) 倒数第二条 message  —— 缓存到上一轮为止的历史（本轮新增之前的全部前缀）
+    客户端已自带 cache_control 时尊重其断点、不重复占额度。就地修改并返回 body。
+    """
+    budget = _MAX_BREAKPOINTS
+    # 统计客户端已用掉的断点，避免超过 4 个被 Anthropic 拒
+    used = _count_existing_breakpoints(body)
+    budget -= used
+    if budget <= 0:
+        return body
+
+    # 1) tools[-1]
+    tools = body.get("tools")
+    if budget > 0 and isinstance(tools, list) and tools:
+        if _mark(tools[-1]):
+            budget -= 1
+
+    # 2) system[-1]（system 为 list 时打最后一个 text 块；为 str 时转成 block 再打）
+    if budget > 0:
+        sys = body.get("system")
+        if isinstance(sys, str) and sys:
+            body["system"] = [{"type": "text", "text": sys, "cache_control": dict(_CACHE_CONTROL)}]
+            budget -= 1
+        elif isinstance(sys, list) and sys:
+            for blk in reversed(sys):
+                if isinstance(blk, dict) and blk.get("type") == "text":
+                    if _mark(blk):
+                        budget -= 1
+                    break
+
+    # 3) 倒数第二条 message 的最后一个可缓存块（缓存历史前缀；留最后一条为"新输入"全价）
+    if budget > 0:
+        msgs = body.get("messages")
+        if isinstance(msgs, list) and len(msgs) >= 2:
+            if _mark_message_tail(msgs[-2]):
+                budget -= 1
+
+    return body
+
+
+def _mark_message_tail(msg: Any) -> bool:
+    """给一条 message 的内容打一个断点：content 为 str → 转 block 打；为 list → 打最后一个 dict 块。"""
+    if not isinstance(msg, dict):
+        return False
+    content = msg.get("content")
+    if isinstance(content, str) and content:
+        msg["content"] = [{"type": "text", "text": content, "cache_control": dict(_CACHE_CONTROL)}]
+        return True
+    if isinstance(content, list):
+        for blk in reversed(content):
+            if isinstance(blk, dict):
+                return _mark(blk)
+    return False
+
+
+def _count_existing_breakpoints(body: Dict[str, Any]) -> int:
+    """统计 body 里已存在的 cache_control 数（客户端自带的），用于不超 4 个上限。"""
+    n = 0
+    sys = body.get("system")
+    if isinstance(sys, list):
+        n += sum(1 for b in sys if isinstance(b, dict) and "cache_control" in b)
+    for t in (body.get("tools") or []):
+        if isinstance(t, dict) and "cache_control" in t:
+            n += 1
+    for m in (body.get("messages") or []):
+        c = isinstance(m, dict) and m.get("content")
+        if isinstance(c, list):
+            n += sum(1 for b in c if isinstance(b, dict) and "cache_control" in b)
+    return n
+
+
 def upstream_for(slot: Slot, client_beta: Optional[str] = None) -> Tuple[str, Dict[str, str], bool]:
     """返回 (base_url, headers, is_oauth)。is_oauth=True 表示需要注入身份。"""
     if slot.type == SlotType.SUBSCRIPTION:
@@ -284,7 +376,12 @@ def anthropic_to_openai(data: Dict[str, Any]) -> Dict[str, Any]:
     if tool_calls:
         msg["tool_calls"] = tool_calls
     u = data.get("usage") or {}
-    p = int(u.get("input_tokens", 0) or 0) + int(u.get("cache_read_input_tokens", 0) or 0)
+    # OpenAI 的 prompt_tokens 用于回给客户端展示：含新输入 + 缓存读 + 缓存写（与 total 口径一致）。
+    # 真实计费在 gateway 用 _usage_anthropic 拆分后按各自单价算，不走这里。
+    in_tok = int(u.get("input_tokens", 0) or 0)
+    cache_read = int(u.get("cache_read_input_tokens", 0) or 0)
+    cache_write = int(u.get("cache_creation_input_tokens", 0) or 0)
+    p = in_tok + cache_read + cache_write
     c = int(u.get("output_tokens", 0) or 0)
     return {
         "id": "chatcmpl-" + uuid.uuid4().hex[:24],
@@ -292,7 +389,10 @@ def anthropic_to_openai(data: Dict[str, Any]) -> Dict[str, Any]:
         "created": int(time.time()),
         "model": data.get("model"),
         "choices": [{"index": 0, "message": msg, "finish_reason": _STOP_MAP.get(data.get("stop_reason"), "stop")}],
-        "usage": {"prompt_tokens": p, "completion_tokens": c, "total_tokens": p + c},
+        "usage": {
+            "prompt_tokens": p, "completion_tokens": c, "total_tokens": p + c,
+            "prompt_tokens_details": {"cached_tokens": cache_read},
+        },
     }
 
 

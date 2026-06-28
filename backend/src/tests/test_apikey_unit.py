@@ -79,6 +79,55 @@ def test_cache_price_derivation():
     assert _cache_read_price(p1) == 99 and _cache_write_price(p1) == 111
 
 
+def test_inject_cache_breakpoints_marks_tools_system_history():
+    from services.apikey.passthrough import inject_cache_breakpoints
+    body = {
+        "system": [{"type": "text", "text": "sys"}],
+        "tools": [{"name": "a"}, {"name": "b"}],
+        "messages": [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+        ],
+    }
+    inject_cache_breakpoints(body)
+    # tools 最后一项打点
+    assert body["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in body["tools"][0]
+    # system 最后一个 text 块打点
+    assert body["system"][-1]["cache_control"] == {"type": "ephemeral"}
+    # 倒数第二条 message（a1）打点；最后一条（q2，本轮新输入）不打
+    assert isinstance(body["messages"][-2]["content"], list)
+    assert body["messages"][-2]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert isinstance(body["messages"][-1]["content"], str)  # 最后一条不动
+
+
+def test_inject_cache_breakpoints_respects_4_cap():
+    from services.apikey.passthrough import inject_cache_breakpoints
+    # 客户端已自带 4 个断点 → 不再加，避免超 Anthropic 上限
+    body = {
+        "system": [{"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}],
+        "tools": [{"name": "a", "cache_control": {"type": "ephemeral"}}],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "m1", "cache_control": {"type": "ephemeral"}}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "m2", "cache_control": {"type": "ephemeral"}}]},
+            {"role": "user", "content": "m3"},
+        ],
+    }
+    inject_cache_breakpoints(body)
+    # 最后一条 m3 仍是 str（没新增断点）
+    assert isinstance(body["messages"][-1]["content"], str)
+
+
+def test_inject_cache_breakpoints_string_system():
+    from services.apikey.passthrough import inject_cache_breakpoints
+    body = {"system": "just a string", "messages": [{"role": "user", "content": "hi"}]}
+    inject_cache_breakpoints(body)
+    # str system 被转成带 cache_control 的 block
+    assert isinstance(body["system"], list)
+    assert body["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+
 def test_cli_model_normalize():
     assert _cli_model("opus") == "opus"
     assert _cli_model("claude-sonnet-4") == "sonnet"
