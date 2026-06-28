@@ -24,7 +24,7 @@ def precheck(key: Dict[str, Any], user: Dict[str, Any], model: str) -> None:
     if settings.AK_ENFORCE_BALANCE and effective_balance(user) <= 0:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"insufficient balance — 余额不足，请前往 {settings.RECHARGE_URL} 充值后继续",
+            detail=f"Insufficient balance. Top up at {settings.RECHARGE_URL}",
         )
 
     cap = key.get("quota_cap_micro_usd")

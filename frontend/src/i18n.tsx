@@ -333,7 +333,8 @@ const Ctx = createContext<{ lang: Lang; setLang: (l: Lang) => void; t: (k: TKey)
 export function LangProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
     const s = (typeof localStorage !== 'undefined' && localStorage.getItem('lang')) as Lang | null
-    return s === 'en' || s === 'zh' ? s : 'zh'
+    // 默认英文；用户切过中文会写入 localStorage，不清缓存就一直保留
+    return s === 'en' || s === 'zh' ? s : 'en'
   })
   const setLang = (l: Lang) => {
     try { localStorage.setItem('lang', l) } catch { /* ignore */ }
