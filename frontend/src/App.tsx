@@ -91,9 +91,9 @@ export default function App() {
 
       {user.trial_active && !user.trial_permanent && (
         <div className="ak-keybanner" style={{ background: '#eff6ff', borderColor: 'var(--accent)' }}>
-          🎁 你有试用额度 <b>{user.trial_usd}</b>，有效期至{' '}
+          🎁 {t('trial_banner_1')} <b>{user.trial_usd}</b>{t('trial_banner_2')}{' '}
           <b>{user.trial_expires_at ? new Date(user.trial_expires_at).toLocaleDateString() : '—'}</b>
-          。期间充值任意金额（≥ $1），试用额度即<b>永久有效</b>。
+          {t('trial_banner_3')}<b>{t('trial_permanent')}</b>。
         </div>
       )}
 
