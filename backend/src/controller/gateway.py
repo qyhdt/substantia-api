@@ -222,6 +222,7 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
             slot = await pick()
             base, headers, oauth = pt.upstream_for(slot, client_beta)
             body = pt.inject_identity(dict(raw)) if oauth else dict(raw)
+            pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点（多轮重复前缀走 10% 价）
             audit.record_upstream(endpoint="anthropic", body=body, uid=uid,
                                   key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
             started = time.monotonic()
@@ -250,6 +251,7 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
     slot = await pick()
     base, headers, oauth = pt.upstream_for(slot, client_beta)
     body = pt.inject_identity(dict(raw)) if oauth else dict(raw)
+    pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点
     audit.record_upstream(endpoint="anthropic", body=body, uid=uid,
                           key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
     started = time.monotonic()
@@ -404,6 +406,7 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
             pass
         base, headers, oauth = pt.upstream_for(slot, client_beta)
         body = pt.inject_identity(dict(anth)) if oauth else dict(anth)
+        pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点（Cursor 经此链路）
         audit.record_upstream(endpoint="openai", body=body, uid=uid,
                               key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
         started = time.monotonic()
