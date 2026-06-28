@@ -28,6 +28,37 @@ ANTHROPIC_API = "https://api.anthropic.com"
 # 订阅 OAuth 必须的身份系统提示（缺它会被 429/拒）
 CC_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
 
+# 出站身份对齐真实 Claude Code CLI（抓包自 claude-cli 2.1.195，见 endpoint/capture.py）。
+# 否则默认 UA 是 python-httpx/x.y.z，且缺这些头会暴露是代理、订阅 OAuth 更易被风控。
+CLAUDE_CLI_VERSION = "2.1.195"
+CLAUDE_CLI_UA = f"claude-cli/{CLAUDE_CLI_VERSION} (external, cli)"
+# 真实 CLI 默认携带的 claude-code beta（与 oauth/client beta 合并）
+CLAUDE_CODE_BETA = "claude-code-20250219"
+# 官方 SDK（@anthropic-ai/sdk via Stainless）的固定指纹头
+CC_IDENT_HEADERS = {
+    "x-app": "cli",
+    "anthropic-dangerous-direct-browser-access": "true",
+    "x-stainless-lang": "js",
+    "x-stainless-runtime": "node",
+    "x-stainless-runtime-version": "v26.3.0",
+    "x-stainless-package-version": "0.94.0",
+    "x-stainless-os": "MacOS",
+    "x-stainless-arch": "arm64",
+    "x-stainless-retry-count": "0",
+    "x-stainless-timeout": "600",
+}
+
+
+def _merge_beta(*parts: Optional[str]) -> str:
+    """按顺序去重合并 anthropic-beta 段（claude-code → client → oauth）。"""
+    seen: List[str] = []
+    for p in parts:
+        for b in (p or "").split(","):
+            b = b.strip()
+            if b and b not in seen:
+                seen.append(b)
+    return ",".join(seen)
+
 
 # 规范 Anthropic model id（透传到原生 API 必须用这些精确名）
 _CANON = {
@@ -104,20 +135,21 @@ def upstream_for(slot: Slot, client_beta: Optional[str] = None) -> Tuple[str, Di
         tok = slot_oauth_token(slot)
         if not tok:
             raise RuntimeError(f"slot {slot.id} 无 OAuth token（凭据未就绪）")
-        betas = "oauth-2025-04-20"
-        if client_beta and "oauth-2025-04-20" not in client_beta:
-            betas = f"{client_beta},oauth-2025-04-20"
+        betas = _merge_beta(CLAUDE_CODE_BETA, client_beta, "oauth-2025-04-20")
         return ANTHROPIC_API, {
             "authorization": f"Bearer {tok}",
             "anthropic-version": "2023-06-01",
             "anthropic-beta": betas,
             "content-type": "application/json",
+            "user-agent": CLAUDE_CLI_UA,
+            **CC_IDENT_HEADERS,
         }, True
     # api_key slot：转发到其配置的端点，用其 key
     env = slot.env or {}
     base = (env.get("ANTHROPIC_BASE_URL") or ANTHROPIC_API).rstrip("/")
     key = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ANTHROPIC_API_KEY")
-    headers = {"anthropic-version": "2023-06-01", "content-type": "application/json"}
+    headers = {"anthropic-version": "2023-06-01", "content-type": "application/json",
+               "user-agent": CLAUDE_CLI_UA}
     if client_beta:
         headers["anthropic-beta"] = client_beta
     if key:

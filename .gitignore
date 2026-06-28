@@ -31,3 +31,6 @@ pids/
 *.log
 .debugging
 .idea
+
+# ---- 临时调试抓包代理 ----
+endpoint/
