@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # 中间件是否把请求参数打到日志（默认关闭，避免泄露）
     LOG_REQUEST_PARAMS: bool = False
 
+    # 是否把封装后发往 api.anthropic.com 的完整请求体落审计日志（全量不截断，gzip 按天轮转保留 30 天）
+    LOG_UPSTREAM_BODY: bool = True
+
     # 业务侧若希望把额外请求头并入 request_context，列在这里（CSV 字符串，取列表用 extra_context_headers_list）
     EXTRA_CONTEXT_HEADERS: str = ""
 

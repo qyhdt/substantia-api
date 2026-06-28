@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from frame.sse import encode_event, sse_response
 from security.api_key_auth import authenticate_key
 from services.apikey import passthrough as pt
+from services.apikey import upstream_audit as audit
 from services.apikey import pricing  # noqa: F401  (用户用到，保留)
 from services.apikey import runner
 from services.apikey import usage as usage_svc
@@ -212,6 +213,8 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
             slot = await pick()
             base, headers, oauth = pt.upstream_for(slot, client_beta)
             body = pt.inject_identity(dict(raw)) if oauth else dict(raw)
+            audit.record_upstream(endpoint="anthropic", body=body, uid=uid,
+                                  key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
             started = time.monotonic()
             async with httpx.AsyncClient(timeout=300.0) as c:
                 r = await c.post(f"{base}/v1/messages", headers=headers, json=body)
@@ -237,6 +240,8 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
     slot = await pick()
     base, headers, oauth = pt.upstream_for(slot, client_beta)
     body = pt.inject_identity(dict(raw)) if oauth else dict(raw)
+    audit.record_upstream(endpoint="anthropic", body=body, uid=uid,
+                          key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
     started = time.monotonic()
 
     async def gen():
@@ -384,6 +389,8 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
             pass
         base, headers, oauth = pt.upstream_for(slot, client_beta)
         body = pt.inject_identity(dict(anth)) if oauth else dict(anth)
+        audit.record_upstream(endpoint="openai", body=body, uid=uid,
+                              key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
         started = time.monotonic()
         async with httpx.AsyncClient(timeout=300.0) as c:
             r = await c.post(f"{base}/v1/messages", headers=headers, json=body)
