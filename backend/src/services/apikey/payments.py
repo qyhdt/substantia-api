@@ -33,6 +33,19 @@ log = logging.getLogger("ak.payments")
 MIN_USD = 1.0
 MAX_USD = 10000.0
 
+# 充值阶梯赠送（充值越多送越多）。每档 (实付门槛$, 赠送$)，降序排列；
+# 按实付额匹配「不超过它的最高一档」赠送。赠送进永久余额（balance），与实付同桶、不过期。
+RECHARGE_BONUS_TIERS = [(100.0, 25.0), (50.0, 10.0), (20.0, 2.0)]
+
+
+def recharge_bonus_micro(paid_micro: int) -> int:
+    """按实付额匹配赠送档，返回赠送的微美元（无匹配档=0）。"""
+    paid_usd = int(paid_micro) / 1_000_000
+    for threshold_usd, bonus_usd in RECHARGE_BONUS_TIERS:
+        if paid_usd + 1e-9 >= threshold_usd:
+            return int(round(bonus_usd * 1_000_000))
+    return 0
+
 
 def configured() -> bool:
     return bool(settings.POLAR_ACCESS_TOKEN and settings.POLAR_PRODUCT_ID)
@@ -155,9 +168,11 @@ async def handle_webhook(headers, raw: bytes) -> dict:
     if amount is None:
         return {"already": True, "out_trade_no": otn}  # 并发竞态，别人已处理
 
-    new_bal = await users_svc.adjust_balance(int(row["user_id"]), int(amount))
+    # 实付 + 阶梯赠送，一并加进永久余额（赠送基于实付额，不含上一次的赠送）
+    bonus = recharge_bonus_micro(int(amount))
+    new_bal = await users_svc.adjust_balance(int(row["user_id"]), int(amount) + bonus)
 
-    # 充值达标且试用仍在有效期内 → 把剩余试用额度转为永久有效
+    # 充值达标且试用仍在有效期内 → 把剩余试用额度转为永久有效（按实付额判定，不含赠送）
     if int(amount) >= settings.AK_TRIAL_ACTIVATE_MIN_MICRO_USD:
         await db_util.execute(
             "UPDATE ak_users SET trial_permanent = true "
@@ -166,9 +181,10 @@ async def handle_webhook(headers, raw: bytes) -> dict:
             int(row["user_id"]),
         )
 
-    log.info("polar recharge ok user=%s otn=%s +%d micro, balance=%d",
-             row["user_id"], otn, int(amount), new_bal)
-    return {"granted": True, "out_trade_no": otn, "balance_micro_usd": new_bal}
+    log.info("polar recharge ok user=%s otn=%s paid=%d bonus=%d micro, balance=%d",
+             row["user_id"], otn, int(amount), bonus, new_bal)
+    return {"granted": True, "out_trade_no": otn, "bonus_micro_usd": bonus,
+            "balance_micro_usd": new_bal}
 
 
 async def list_for_user(user_id: int, limit: int = 50, offset: int = 0) -> dict:
