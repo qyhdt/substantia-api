@@ -123,7 +123,7 @@ def _estimate_tokens(s: str) -> int:
 
 
 def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResult:
-    """在 slot 容器里、该用户目录跑 `claude -p ... --output-format json`。"""
+    """在 slot 容器里、该用户目录跑 `claude ... --output-format json`。prompt 写文件再 cat。"""
     info = dm.ensure_slot_container(slot)
 
     wd = dm.user_workdir(slot.id, user_id)
@@ -131,17 +131,22 @@ def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResul
     dm._chown_tree(wd)
     dm._chown_tree(wd.parent)
     container_wd = f"/workspace/users/{user_id}"
+    dm.write_prompt_file(wd, prompt)
 
-    cmd = ["claude", "--dangerously-skip-permissions", "--output-format", "json"]
+    claude_args = ["--output-format", "json"]
     if slot.type == SlotType.SUBSCRIPTION:
         cli = _cli_model(model)     # claude CLI 只认 opus/sonnet/haiku 别名；规范名映射过去
         if cli:
-            cmd += ["--model", cli]  # 未知别名则不传，用账号默认模型
-    cmd += ["-p", prompt]
+            claude_args += ["--model", cli]  # 未知别名则不传，用账号默认模型
 
     c = dm._client().containers.get(info["name"])
-    res = c.exec_run(cmd, user="node", workdir=container_wd,
-                     environment={"HOME": "/workspace"}, demux=False)
+    res = c.exec_run(
+        dm.shell_exec_claude(user_id, *claude_args),
+        user="node",
+        workdir=container_wd,
+        environment={"HOME": "/workspace"},
+        demux=False,
+    )
     out = res.output.decode("utf-8", "replace") if isinstance(res.output, bytes) else str(res.output)
     auth_failed = res.exit_code != 0 and dm.looks_like_auth_failure(out)
 

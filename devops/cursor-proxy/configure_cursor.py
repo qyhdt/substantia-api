@@ -14,7 +14,7 @@ STORAGE_KEY = "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImp
 OPENAI_KEY_KEY = "cursorAuth/openAIKey"
 
 API_KEY = os.environ.get("SUBSTANTIA_API_KEY", "")
-BASE_URL = os.environ.get("CURSOR_PROXY_BASE", "http://127.0.0.1:8765")
+BASE_URL = os.environ.get("CURSOR_OPENAI_BASE", "https://api.substantia.ai/v1")
 MODEL = os.environ.get("SUBSTANTIA_MODEL", "claude-opus-4-8")
 
 
@@ -30,10 +30,15 @@ def _set_model(data: dict, model: str) -> None:
     ai["composerModel"] = model
     ai["backgroundComposerModel"] = model
     ai["cmdKModel"] = model
-    added = set(ai.get("userAddedModels") or [])
-    added.add(model)
-    ai["userAddedModels"] = sorted(added)
+    # keep only substantia model + legacy gpt-* if present; drop typos like Claude-opus-4-8 / hh
+    keep = {model}
+    for m in ai.get("userAddedModels") or []:
+        if m.startswith("gpt-"):
+            keep.add(m)
+    ai["userAddedModels"] = sorted(keep)
     enabled = set(ai.get("modelOverrideEnabled") or [])
+    enabled.discard("Claude-opus-4-8")
+    enabled.discard("hh")
     enabled.add(model)
     ai["modelOverrideEnabled"] = sorted(enabled)
 

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from frame.sse import encode_event, sse_response
 from security.api_key_auth import authenticate_key
+from services.apikey import pricing
 from services.apikey import runner
 from services.apikey import usage as usage_svc
 from config.settings import settings
@@ -229,6 +230,32 @@ def _openai_sse_stream(resp: Dict[str, Any]):
         yield "data: [DONE]\n\n"
 
     return sse_response(gen())
+
+
+@router.get("/models", summary="OpenAI Models 列表（Cursor BYOK 验证用）")
+async def list_models(auth: dict = Depends(authenticate_key)):
+    key = auth["key"]
+    allowed = key.get("allowed_models")
+    if isinstance(allowed, str):
+        try:
+            allowed = json.loads(allowed)
+        except Exception:
+            allowed = None
+
+    rows = await pricing.list_prices()
+    names = [r["model"] for r in rows if r.get("enabled", True)]
+    if allowed:
+        names = [m for m in names if m in allowed]
+    if not names:
+        names = [settings.AK_DEFAULT_MODEL]
+
+    return {
+        "object": "list",
+        "data": [
+            {"id": m, "object": "model", "created": 0, "owned_by": "substantia"}
+            for m in names
+        ],
+    }
 
 
 @router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key）")

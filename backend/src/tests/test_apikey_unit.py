@@ -86,3 +86,14 @@ def test_parse_usage_garbage_returns_none():
 def test_estimate_tokens():
     assert _estimate_tokens("") == 1
     assert _estimate_tokens("abcd" * 10) == 10
+
+
+def test_shell_exec_claude_keeps_prompt_off_argv():
+    from services.claude.docker_manager import shell_exec_claude, _PROMPT_FILE
+
+    huge = "x" * 200_000
+    argv = shell_exec_claude("u-test", "--output-format", "json")
+    joined = " ".join(argv)
+    assert argv[0:2] == ["sh", "-lc"]
+    assert _PROMPT_FILE in joined and "cat" in joined
+    assert huge not in joined

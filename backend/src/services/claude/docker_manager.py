@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shlex
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -37,6 +38,7 @@ _LABEL_KEY = "substantia.claude"
 _LABEL_VALUE = "slot-container"
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_PROMPT_FILE = ".gateway_prompt.txt"
 
 
 class DockerManagerError(RuntimeError):
@@ -76,6 +78,25 @@ def slot_creds_dir(slot: Slot) -> Path:
 def user_workdir(slot_id: str, user_id: str) -> Path:
     assert_safe_id(user_id, "user_id")
     return slot_workspace_dir(slot_id) / "users" / user_id
+
+
+def write_prompt_file(workdir: Path, prompt: str) -> None:
+    """Write prompt to a host-mounted file so docker exec argv stays small (E2BIG fix)."""
+    p = workdir / _PROMPT_FILE
+    p.write_text(prompt, encoding="utf-8")
+    _chown_tree(p)
+
+
+def container_prompt_path(user_id: str) -> str:
+    return f"/workspace/users/{user_id}/{_PROMPT_FILE}"
+
+
+def shell_exec_claude(user_id: str, *claude_args: str) -> List[str]:
+    """Build `sh -lc 'claude ... -p "$(cat prompt-file)"'` argv for docker exec."""
+    path = shlex.quote(container_prompt_path(user_id))
+    parts = ["claude", "--dangerously-skip-permissions", *claude_args]
+    shell = " ".join(shlex.quote(p) for p in parts) + f" -p \"$(cat {path})\""
+    return ["sh", "-lc", shell]
 
 
 def _resolve_image(slot: Slot) -> str:
@@ -321,7 +342,7 @@ class ClaudeExecResult:
 
 
 def _exec_in_slot(slot: Slot, user_id: str, prompt: str) -> ClaudeExecResult:
-    """在指定 slot 容器里、该用户目录中跑一次 `claude -p`。prompt 走 argv，无 shell 注入。"""
+    """在指定 slot 容器里、该用户目录中跑一次 claude。prompt 写文件再 cat，避免 argv 过长。"""
     info = ensure_slot_container(slot)
 
     wd = user_workdir(slot.id, user_id)
@@ -329,10 +350,11 @@ def _exec_in_slot(slot: Slot, user_id: str, prompt: str) -> ClaudeExecResult:
     _chown_tree(wd)
     _chown_tree(wd.parent)
     container_wd = f"/workspace/users/{user_id}"
+    write_prompt_file(wd, prompt)
 
     c = _client().containers.get(info["name"])
     res = c.exec_run(
-        ["claude", "--dangerously-skip-permissions", "-p", prompt],
+        shell_exec_claude(user_id),
         user="node",
         workdir=container_wd,
         environment={"HOME": "/workspace"},
