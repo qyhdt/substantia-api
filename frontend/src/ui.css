@@ -169,6 +169,35 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   padding: 20px; width: 100%; max-width: 460px; box-shadow: 0 10px 30px rgba(16,24,40,.18);
 }
 
+/* 用户消费详情弹窗（更宽，可滚动） */
+.ak-modal-overlay {
+  position: fixed; inset: 0; background: rgba(16,24,40,.45);
+  display: flex; align-items: flex-start; justify-content: center; z-index: 50;
+  padding: 5vh 20px; overflow-y: auto;
+}
+.ak-modal-overlay .ak-modal {
+  max-width: 860px; max-height: 90vh; overflow-y: auto;
+}
+.ak-modal h4 { margin: 22px 0 8px; font-size: 14px; }
+
+.ak-link { color: var(--accent); cursor: pointer; }
+.ak-link:hover { text-decoration: underline; }
+
+.ak-detail-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;
+  margin-bottom: 16px;
+}
+.ak-detail-grid > div { display: flex; flex-direction: column; gap: 3px; }
+.ak-detail-grid .ak-muted { font-size: 12px; }
+
+.ak-stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.ak-stat-row .ak-stat {
+  flex: 1; min-width: 140px; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px;
+}
+.ak-stat-row .ak-stat b { font-size: 18px; }
+.ak-stat-row .ak-stat .ak-muted { font-size: 12px; }
+
 .lp-footer {
   border-top: 1px solid var(--border); margin-top: 40px; padding: 28px 20px;
   text-align: center; color: var(--muted); font-size: 13px;

@@ -110,12 +110,65 @@ async def adjust_balance(user_id: int, delta_micro_usd: int) -> int:
 
 
 async def list_users(limit: int = 200) -> List[Dict[str, Any]]:
+    """用户列表。返回的 balance_micro_usd 是「有效余额」= 实付桶 + 有效试用桶，
+    使前端看到的余额与门户 /portal/me 一致（注册送的 $20 进试用桶，曾被漏算成 $0）。"""
+    from services.apikey.balance import effective_balance, trial_active
+
     rows = await db_util.fetch(
-        "SELECT id, email, role, status, balance_micro_usd, created_at "
+        "SELECT id, email, role, status, balance_micro_usd, "
+        "trial_micro_usd, trial_expires_at, trial_permanent, created_at "
         "FROM ak_users ORDER BY created_at DESC LIMIT $1",
         limit,
     )
-    return [dict(r) for r in rows]
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        u = dict(r)
+        paid = int(u.get("balance_micro_usd") or 0)
+        active = trial_active(u)
+        u["paid_micro_usd"] = paid                               # 实付桶
+        u["trial_active"] = active                               # 试用是否有效
+        u["trial_micro_usd"] = int(u.get("trial_micro_usd") or 0)
+        u["effective_micro_usd"] = effective_balance(u)          # 实付 + 有效试用
+        u["balance_micro_usd"] = u["effective_micro_usd"]        # 前端「余额」列展示有效总额
+        out.append(u)
+    return out
+
+
+async def user_detail(user_id: int) -> Optional[Dict[str, Any]]:
+    """单用户详情：账户 + 余额分桶 + 用量聚合（按模型）+ 最近用量明细 + key 列表。
+    供 admin「点击邮箱看详细消费」用。"""
+    from services.apikey import usage as usage_svc
+    from services.apikey.balance import effective_balance, trial_active
+
+    row = await db_util.fetchrow(
+        "SELECT id, email, role, status, balance_micro_usd, "
+        "trial_micro_usd, trial_expires_at, trial_permanent, created_at "
+        "FROM ak_users WHERE id = $1",
+        user_id,
+    )
+    if not row:
+        return None
+    u = dict(row)
+    active = trial_active(u)
+    u["paid_micro_usd"] = int(u.get("balance_micro_usd") or 0)
+    u["trial_micro_usd"] = int(u.get("trial_micro_usd") or 0)
+    u["trial_active"] = active
+    u["effective_micro_usd"] = effective_balance(u)
+
+    spend = await usage_svc.user_spend_summary(user_id)
+    keys = await db_util.fetch(
+        "SELECT id, name, key_prefix, status, spent_micro_usd, quota_cap_micro_usd, "
+        "last_used_at, created_at FROM ak_api_keys WHERE user_id = $1 ORDER BY created_at DESC",
+        user_id,
+    )
+    recent = await usage_svc.usage_for_user(user_id, limit=20, offset=0)
+    return {
+        "user": u,
+        "spend": spend,                  # {total_cost_micro_usd, total_calls, total_tokens, by_model}
+        "keys": [dict(k) for k in keys],
+        "recent_usage": recent["items"],
+        "recent_total": recent["total"],
+    }
 
 
 async def set_role(user_id: int, role: str) -> bool:

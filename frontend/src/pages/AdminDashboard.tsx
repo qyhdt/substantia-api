@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { admin, fmtUsd } from '../api'
 import { Async, Card, Pill, useAsync } from '../components/common'
 
+const fmtTime = (t?: string | null) => (t ? new Date(t).toLocaleString() : '—')
+
 const TABS = [
   ['topups', '充值审核'],
   ['users', '用户'],
@@ -65,6 +67,7 @@ function Topups() {
 
 function Users() {
   const state = useAsync(() => admin.users(), [])
+  const [detailId, setDetailId] = useState<number | null>(null)
   async function grant(id: number) {
     const v = prompt('调整余额 (USD，可负数)：', '10')
     if (v == null) return
@@ -81,17 +84,23 @@ function Users() {
   }
   return (
     <Card title="用户管理">
+      <p className="ak-muted">点击邮箱查看该用户的详细消费（余额分桶 / 按模型花费 / 用量明细）。「余额」为有效总额 = 实付 + 有效试用。</p>
       <Async state={state}>{(rows: any[]) => (
         <table className="ak-table">
-          <thead><tr><th>ID</th><th>邮箱</th><th>角色</th><th>状态</th><th>余额</th><th></th></tr></thead>
+          <thead><tr><th>ID</th><th>邮箱</th><th>角色</th><th>状态</th><th>余额</th><th>试用</th><th></th></tr></thead>
           <tbody>
             {rows.map((u) => (
               <tr key={u.id}>
                 <td>{u.id}</td>
-                <td>{u.email}</td>
+                <td>
+                  <a className="ak-link" onClick={() => setDetailId(u.id)} style={{ cursor: 'pointer' }}>{u.email}</a>
+                </td>
                 <td><Pill kind={u.role === 'admin' ? 'warn' : undefined}>{u.role}</Pill></td>
                 <td><Pill kind={u.status === 'active' ? 'ok' : 'bad'}>{u.status}</Pill></td>
                 <td className="ak-balance">{fmtUsd(u.balance_micro_usd)}</td>
+                <td>{u.trial_active
+                  ? <span className="ak-muted">{fmtUsd(u.trial_micro_usd)} 至 {u.trial_expires_at ? new Date(u.trial_expires_at).toLocaleDateString() : '—'}</span>
+                  : <span className="ak-muted">—</span>}</td>
                 <td>
                   <div className="ak-row">
                     <button className="ak-btn" onClick={() => grant(u.id)}>调额</button>
@@ -104,7 +113,97 @@ function Users() {
           </tbody>
         </table>
       )}</Async>
+      {detailId != null && <UserDetailModal userId={detailId} onClose={() => setDetailId(null)} />}
     </Card>
+  )
+}
+
+function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => void }) {
+  const state = useAsync(() => admin.userDetail(userId), [userId])
+  return (
+    <div className="ak-modal-overlay" onClick={onClose}>
+      <div className="ak-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ak-row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
+          <h3 style={{ margin: 0 }}>用户消费详情</h3>
+          <button className="ak-btn" onClick={onClose}>关闭</button>
+        </div>
+        <Async state={state}>{(d: any) => {
+          const u = d.user || {}
+          const s = d.spend || {}
+          return (
+            <>
+              <div className="ak-detail-grid">
+                <div><span className="ak-muted">邮箱</span><b>{u.email}</b></div>
+                <div><span className="ak-muted">角色 / 状态</span><b>{u.role} / {u.status}</b></div>
+                <div><span className="ak-muted">有效余额</span><b className="ak-balance">{fmtUsd(u.effective_micro_usd)}</b></div>
+                <div><span className="ak-muted">实付桶</span><b>{fmtUsd(u.paid_micro_usd)}</b></div>
+                <div><span className="ak-muted">试用桶{u.trial_active ? '（有效）' : '（失效/无）'}</span>
+                  <b>{fmtUsd(u.trial_micro_usd)}{u.trial_expires_at ? ` · 至 ${new Date(u.trial_expires_at).toLocaleDateString()}` : ''}</b></div>
+                <div><span className="ak-muted">注册时间</span><b>{fmtTime(u.created_at)}</b></div>
+              </div>
+
+              <div className="ak-stat-row">
+                <div className="ak-stat"><span className="ak-muted">累计花费</span><b className="ak-balance">{fmtUsd(s.total_cost_micro_usd)}</b></div>
+                <div className="ak-stat"><span className="ak-muted">调用数</span><b>{s.total_calls || 0}</b></div>
+                <div className="ak-stat"><span className="ak-muted">总 tokens</span><b>{s.total_tokens || 0}</b></div>
+              </div>
+
+              <h4>按模型花费</h4>
+              <table className="ak-table">
+                <thead><tr><th>模型</th><th>调用</th><th>输入 tok</th><th>输出 tok</th><th>花费</th></tr></thead>
+                <tbody>
+                  {(s.by_model || []).map((m: any, i: number) => (
+                    <tr key={i}>
+                      <td className="ak-mono">{m.model || '—'}</td>
+                      <td>{m.calls}</td>
+                      <td>{m.prompt_tokens || 0}</td>
+                      <td>{m.completion_tokens || 0}</td>
+                      <td>{fmtUsd(m.cost)}</td>
+                    </tr>
+                  ))}
+                  {(s.by_model || []).length === 0 && <tr><td colSpan={5} className="ak-muted">暂无消费</td></tr>}
+                </tbody>
+              </table>
+
+              <h4>API Key（{(d.keys || []).length}）</h4>
+              <table className="ak-table">
+                <thead><tr><th>名称</th><th>前缀</th><th>状态</th><th>累计花费</th><th>最后使用</th></tr></thead>
+                <tbody>
+                  {(d.keys || []).map((k: any) => (
+                    <tr key={k.id}>
+                      <td>{k.name}</td>
+                      <td className="ak-mono ak-muted">{k.key_prefix}</td>
+                      <td><Pill kind={k.status === 'active' ? 'ok' : 'bad'}>{k.status}</Pill></td>
+                      <td>{fmtUsd(k.spent_micro_usd)}</td>
+                      <td className="ak-muted">{fmtTime(k.last_used_at)}</td>
+                    </tr>
+                  ))}
+                  {(d.keys || []).length === 0 && <tr><td colSpan={5} className="ak-muted">无 key</td></tr>}
+                </tbody>
+              </table>
+
+              <h4>最近用量明细（最新 {(d.recent_usage || []).length} / 共 {d.recent_total || 0}）</h4>
+              <table className="ak-table">
+                <thead><tr><th>时间</th><th>模型</th><th>slot</th><th>tokens</th><th>花费</th><th>状态</th></tr></thead>
+                <tbody>
+                  {(d.recent_usage || []).map((r: any) => (
+                    <tr key={r.id}>
+                      <td className="ak-muted">{fmtTime(r.created_at)}</td>
+                      <td className="ak-mono">{r.model || '—'}</td>
+                      <td className="ak-mono ak-muted">{r.slot_id || '—'}</td>
+                      <td>{r.total_tokens || 0}</td>
+                      <td>{fmtUsd(r.cost_micro_usd)}</td>
+                      <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status || '—'}</Pill></td>
+                    </tr>
+                  ))}
+                  {(d.recent_usage || []).length === 0 && <tr><td colSpan={6} className="ak-muted">暂无用量</td></tr>}
+                </tbody>
+              </table>
+            </>
+          )
+        }}</Async>
+      </div>
+    </div>
   )
 }
 

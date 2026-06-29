@@ -51,6 +51,14 @@ async def list_users():
     return await users_svc.list_users()
 
 
+@router.get("/users/{user_id}/detail", summary="单用户详情：余额分桶 + 消费聚合 + 用量明细")
+async def user_detail(user_id: int):
+    detail = await users_svc.user_detail(user_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="user not found")
+    return detail
+
+
 @router.post("/users/{user_id}/grant", summary="手动调整用户余额")
 async def grant(user_id: int, payload: GrantIn):
     from services.apikey import to_micro

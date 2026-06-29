@@ -67,6 +67,7 @@ export const admin = {
   reviewTopup: (id: number, approve: boolean, note?: string) =>
     api.post(`/admin/topups/${id}/review`, { approve, note }),
   users: () => api.get('/admin/users'),
+  userDetail: (id: number) => api.get(`/admin/users/${id}/detail`),
   grant: (id: number, amount_usd: number) => api.post(`/admin/users/${id}/grant`, { amount_usd }),
   setRole: (id: number, role: string) => api.post(`/admin/users/${id}/role?role=${role}`),
   setUserStatus: (id: number, status: string) => api.post(`/admin/users/${id}/status?status=${status}`),

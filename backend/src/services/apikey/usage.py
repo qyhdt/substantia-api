@@ -135,6 +135,33 @@ async def usage_for_user(user_id: int, limit: int = 50, offset: int = 0) -> Dict
     return {"items": [dict(r) for r in rows], "total": int(total or 0)}
 
 
+async def user_spend_summary(user_id: int) -> Dict[str, Any]:
+    """单用户消费聚合：总花费/调用数/总 token + 按模型明细。供 admin 用户详情用。"""
+    total = await db_util.fetchrow(
+        "SELECT count(*) AS calls, "
+        "coalesce(sum(total_tokens), 0) AS tokens, "
+        "coalesce(sum(cost_micro_usd), 0) AS cost "
+        "FROM ak_usage_logs WHERE user_id = $1",
+        user_id,
+    )
+    by_model = await db_util.fetch(
+        "SELECT model, count(*) AS calls, "
+        "coalesce(sum(prompt_tokens), 0) AS prompt_tokens, "
+        "coalesce(sum(completion_tokens), 0) AS completion_tokens, "
+        "coalesce(sum(total_tokens), 0) AS tokens, "
+        "coalesce(sum(cost_micro_usd), 0) AS cost "
+        "FROM ak_usage_logs WHERE user_id = $1 "
+        "GROUP BY model ORDER BY cost DESC NULLS LAST",
+        user_id,
+    )
+    return {
+        "total_calls": int(total["calls"] or 0),
+        "total_tokens": int(total["tokens"] or 0),
+        "total_cost_micro_usd": int(total["cost"] or 0),
+        "by_model": [dict(r) for r in by_model],
+    }
+
+
 async def admin_summary(limit: int = 500) -> Dict[str, Any]:
     """看板聚合：按 user / model / slot 汇总 token + 花费。"""
     by_model = await db_util.fetch(
