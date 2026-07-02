@@ -64,16 +64,23 @@ class RunnerResult:
 
 
 _CLI_ALIASES = ("opus", "sonnet", "haiku")
+# CLI 也接受完整模型名；Fable 5 / Sonnet 5 没有短别名，传规范 id 保证命中确切版本
+_CLI_FULL_IDS = ("claude-fable-5", "claude-sonnet-5")
 
 
 def _cli_model(model: str) -> Optional[str]:
-    """把请求模型名归一成 claude CLI 认的别名（opus/sonnet/haiku）。
-    'sonnet' → 'sonnet'；'claude-sonnet-4' → 'sonnet'；未知 → None（不传 --model，用账号默认）。"""
+    """把请求模型名归一成 claude CLI 认的名字（opus/sonnet/haiku 别名或完整 id）。
+    'sonnet' → 'sonnet'；'claude-sonnet-4' → 'sonnet'；'claude-fable-5' → 'claude-fable-5'；
+    未知 → None（不传 --model，用账号默认）。"""
     if not model:
         return None
     m = model.lower()
     if m in _CLI_ALIASES:
         return m
+    if m in _CLI_FULL_IDS:
+        return m
+    if "fable" in m:
+        return "claude-fable-5"
     for a in _CLI_ALIASES:
         if a in m:
             return a

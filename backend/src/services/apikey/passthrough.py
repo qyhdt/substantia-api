@@ -63,7 +63,7 @@ def _merge_beta(*parts: Optional[str]) -> str:
 # 规范 Anthropic model id（透传到原生 API 必须用这些精确名）
 _CANON = {
     "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
-    "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5",
+    "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5",
 }
 # 无 family 词、仅版本号 → 按版本归属 family（如 Cursor 里随手起名 "claude4.8"）
 _BY_VERSION = {
@@ -71,7 +71,7 @@ _BY_VERSION = {
     "4-5": "claude-haiku-4-5",
 }
 _FAMILY_DEFAULT = {
-    "opus": "claude-opus-4-8", "sonnet": "claude-sonnet-4-6",
+    "opus": "claude-opus-4-8", "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5", "fable": "claude-fable-5",
 }
 

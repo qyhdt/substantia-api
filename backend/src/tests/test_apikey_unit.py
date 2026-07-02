@@ -134,6 +134,20 @@ def test_cli_model_normalize():
     assert _cli_model("haiku") == "haiku"
     assert _cli_model("gpt-4o") is None
     assert _cli_model("") is None
+    # Fable 5 / Sonnet 5：无短别名，传完整 id
+    assert _cli_model("claude-fable-5") == "claude-fable-5"
+    assert _cli_model("fable") == "claude-fable-5"
+    assert _cli_model("claude-sonnet-5") == "claude-sonnet-5"
+
+
+def test_normalize_model_new_families():
+    from services.apikey.passthrough import normalize_model
+    assert normalize_model("fable") == "claude-fable-5"
+    assert normalize_model("claude-fable-5") == "claude-fable-5"
+    assert normalize_model("sonnet") == "claude-sonnet-5"
+    assert normalize_model("sonnet5") == "claude-sonnet-5"
+    assert normalize_model("claude-sonnet-5") == "claude-sonnet-5"
+    assert normalize_model("claude-sonnet-4.6") == "claude-sonnet-4-6"
 
 
 def test_parse_usage_embedded_json():
