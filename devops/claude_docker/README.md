@@ -15,7 +15,7 @@ substantia-api 让 Claude Code CLI 跑在容器里。架构与里程碑见
 | `seed-claude-creds.sh` | 登录镜像 ENTRYPOINT：启动时把烘好的 OAuth 凭据 seed 到运行时 `$HOME/.claude`（仅当镜像更新时覆盖，避免用过期凭据盖掉活凭据）。 |
 | `run.sh` | 本地一键起容器跑 `claude`（交互 / `-p` 非交互），自动 source `.env.dev`。 |
 | `make-logged-in-image.sh` | 本机烘订阅预登录镜像并 push（本地版）。 |
-| `relogin-remote.sh` | 远端一键重登 + 重烘订阅镜像（refresh_token 失效时用）。默认 `HOST=43.155.195.115`。 |
+| `relogin-remote.sh` | 远端一键重登 + 重烘订阅镜像（refresh_token 失效时用）。默认 `HOST=8.216.44.14`。 |
 | `.env.dev.example` | `run.sh` 的环境模板（复制为 `.env.dev`，**不入库**）。 |
 
 ## 多订阅（per-slot）约定 — 对应方案 A

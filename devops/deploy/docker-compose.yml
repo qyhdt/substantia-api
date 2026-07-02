@@ -1,4 +1,4 @@
-# substantia-api 远端部署栈（43.155.195.115）。
+# substantia-api 远端部署栈（8.216.44.14）。
 # 用法（在远端 devops/deploy/ 下）：
 #   cp .env.example .env && 编辑 .env 填密钥
 #   docker compose up -d --build

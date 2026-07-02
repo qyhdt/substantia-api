@@ -6,7 +6,7 @@
 
 最后更新：2026-06-27 · 状态：**M0–M5 代码完成 + 远端 sub-a slot 端到端跑通（真 Opus）· 待登录更多 sub + 部署 backend**
 
-**已定决策（2026-06-27）**：① 拓扑 = **方案 A**（每 sub 一个容器）；② **保留 api_key slot 接口能力，初期不启用**（池里先只放 subscription slot，GLM/ChatGPT/DeepSeek 以后再加）；③ 部署机 `43.155.195.115`，镜像推**私有仓库**（默认 `qyhdt/private`，可改）。
+**已定决策（2026-06-27）**：① 拓扑 = **方案 A**（每 sub 一个容器）；② **保留 api_key slot 接口能力，初期不启用**（池里先只放 subscription slot，GLM/ChatGPT/DeepSeek 以后再加）；③ 部署机 `8.216.44.14`，镜像推**私有仓库**（默认 `qyhdt/private`，可改）。
 
 ---
 
@@ -118,7 +118,7 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 ### M0 · 设计确认（✅ 完成）
 - [x] 读透参考 `claude_docker` + `docker_manager`
 - [x] 产出本 plan
-- [x] 与用户确认：拓扑 = **A**；初期 slot 池 = **仅 subscription**（api_key 保留接口不启用）；部署机 `43.155.195.115` + 私有仓库
+- [x] 与用户确认：拓扑 = **A**；初期 slot 池 = **仅 subscription**（api_key 保留接口不启用）；部署机 `8.216.44.14` + 私有仓库
 
 ### M1 · 镜像与本地跑通（单 slot）（✅ 完成）
 - [x] 把 `claude_docker/` 移植进 `substantia-api/devops/claude_docker/`（Dockerfile.claude / run.sh / seed-claude-creds.sh / make-logged-in / relogin-remote），改项目路径为 `~/substantia-api`、seed 路径加 `devops/`，示例 token 打码，加 README（含 per-slot 镜像 tag 约定）
@@ -183,7 +183,7 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 ## 8. 待确认问题（✅ 已答 2026-06-27）
 1. ✅ 拓扑 = **方案 A**（每 sub 一个容器）。
 2. ✅ **保留 api_key 接口能力，初期不启用**；池里先只放 subscription slot。具体几个 sub = 配置驱动，部署时填。
-3. ✅ 部署机 `43.155.195.115`；镜像推**私有仓库**（默认 `qyhdt/private`，需要时改）。
+3. ✅ 部署机 `8.216.44.14`；镜像推**私有仓库**（默认 `qyhdt/private`，需要时改）。
 
 仍待补（不阻塞 M1）：初期 subscription slot 的**数量**与各自登录账号（部署时按需增减，配置驱动）。
 
@@ -191,7 +191,7 @@ slot = argmax over enabled slots of  weight_i * hash(user_id + ":" + slot_i.id)
 
 ## 9. 变更记录（changelog）
 - **2026-06-27** · 初版 plan：确立 slot 池 + HRW 哈希分流 + per-sub 隔离凭据架构；明确「不可热插拔轮换订阅凭据」；列出 M0–M6 步骤。等待拓扑/​slot 清单确认。
-- **2026-06-27** · 用户拍板：拓扑 = 方案 A；初期 slot 池仅 subscription（api_key 保留接口不启用）；部署机 `43.155.195.115` + 私有仓库。M0 完成，进入 M1。
+- **2026-06-27** · 用户拍板：拓扑 = 方案 A；初期 slot 池仅 subscription（api_key 保留接口不启用）；部署机 `8.216.44.14` + 私有仓库。M0 完成，进入 M1。
 - **2026-06-27** · M1：移植 `claude_docker` → `devops/claude_docker/`（改路径/打码/加 README + per-slot tag 约定）。镜像 build/push 与远端部署待用户确认后执行。
 - **2026-06-27** · M2 完成：`services/claude/{slots,router,registry}.py` + 7 个单测全绿。加权 HRW 路由，sticky、增删 slot 只搬 ~1/N、健康剔除/回流均验证通过。slot 持久化暂用 env/JSON，DB 落到 M5。
 - **2026-06-27** · M3 代码完成：`services/claude/docker_manager.py`（slot 为单位幂等编排 + `exec_claude` + `ensure_all_enabled`）+ 7 个纯逻辑单测（共 14 全绿）。加 `docker` 依赖与 `CLAUDE_*` 配置。记录多用户/单容器的转录隔离取舍（M6 加固）。容器实测待 Docker 镜像就绪。

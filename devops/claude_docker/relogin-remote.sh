@@ -13,7 +13,7 @@
 #     NO_PUSH=1 ./relogin-remote.sh              # 只本地 commit 不推送（验证用）
 #
 #  环境变量（都有默认值）：
-#     HOST         远端 IP，默认 43.155.195.115
+#     HOST         远端 IP，默认 8.216.44.14
 #     REMOTE_USER  远端用户，默认 work
 #     IMAGE        目标镜像，默认 qyhdt/private:claude-loggedin
 #     BASE_IMAGE   登录用的 base 镜像，默认 claude-runner
@@ -24,7 +24,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-HOST="${HOST:-43.155.195.115}"
+HOST="${HOST:-8.216.44.14}"
 REMOTE_USER="${REMOTE_USER:-work}"
 IMAGE="${IMAGE:-qyhdt/private:claude-loggedin}"
 BASE_IMAGE="${BASE_IMAGE:-claude-runner}"

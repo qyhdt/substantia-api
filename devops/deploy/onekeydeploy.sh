@@ -12,7 +12,7 @@
 #     SYNC=rsync ./devops/deploy/onekeydeploy.sh       # 用 rsync 同步工作区（默认 git 同步已提交内容）
 #
 #  环境变量（都有默认值）：
-#     HOST          远端 IP，默认 43.155.195.115
+#     HOST          远端 IP，默认 8.216.44.14
 #     REMOTE_USER   远端用户，默认 work
 #     REPO_DIR      远端仓库路径，默认 ~/substantia-api
 #     BRANCH        要部署的分支，默认当前本地分支
@@ -28,7 +28,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-HOST="${HOST:-43.155.195.115}"
+HOST="${HOST:-8.216.44.14}"
 REMOTE_USER="${REMOTE_USER:-work}"
 REPO_DIR="${REPO_DIR:-\$HOME/substantia-api}"   # 远端展开，故转义 $HOME
 SERVICE="${SERVICE:-}"
