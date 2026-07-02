@@ -91,7 +91,11 @@ else
 fi
 
 # ── 2. 远端 compose 重建并起栈 ───────────────────────────────────────────────
-say "远端 docker compose up ${BUILD_FLAG:-（不 build）} ${SVC_ARG:+（仅 $SVC_ARG）}"
+# 提示串先拼好再 say：macOS 自带 bash 3.2 对 ${VAR:+…} 内含多字节字符会误报 unbound variable
+UP_DESC="远端 docker compose up"
+[ -n "$BUILD_FLAG" ] || UP_DESC="$UP_DESC (no build)"
+[ -z "$SVC_ARG" ] || UP_DESC="$UP_DESC (only $SVC_ARG)"
+say "$UP_DESC"
 "${SSH[@]}" "set -e
   cd \"${REPO_DIR}/${DEPLOY_SUBDIR}\"
   [ -f .env ] || { echo 'remote: 缺 .env（请先 cp .env.example .env 并填密钥）'; exit 1; }
