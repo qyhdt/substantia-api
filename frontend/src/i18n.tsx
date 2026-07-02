@@ -103,6 +103,7 @@ const DICT = {
     openai_note: '官方 openai SDK：base_url = https://api.substantia.ai/v1，key 当作 api_key（Bearer）',
     copy_curl_done: '已复制 {title} curl（含 {name}）✓',
     copy_curl_nokey: '没有可自动填入的 key —— 旧 key 不保存明文，请先「生成」一个新 key',
+    model_pick: '示例模型：',
 
     // Cursor 卡片
     card_cursor: '在 Cursor 中使用',
@@ -263,6 +264,7 @@ const DICT = {
     accordion_collapse: 'Collapse ▲',
     accordion_expand: 'Show ▼',
     copy_sample: 'Copy sample',
+    model_pick: 'Example model: ',
     copy_real_key: 'Copy with real key',
     anthropic_compat: 'Anthropic-compatible',
     openai_compat: 'OpenAI-compatible',
