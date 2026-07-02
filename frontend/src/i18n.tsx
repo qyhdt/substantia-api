@@ -137,6 +137,15 @@ const DICT = {
     cursor_foot_3: '；Anthropic API Key 保持关闭，避免冲突。Agent 模式下可用 ',
     cursor_foot_4: ' 让模型读取本地项目。',
 
+    // Claude Code (CLI) 卡片
+    card_claudecli: '在 Claude Code (CLI) 中使用',
+    claudecli_desc_1: 'Claude Code 官方命令行直接接入：把 ',
+    claudecli_desc_2: ' 指向本网关、',
+    claudecli_desc_3: ' 填你的 sk-key 即可。设置以下环境变量后运行 ',
+    claudecli_desc_4: '：',
+    claudecli_note: '说明：网关会把 Claude Code 的请求原生透传到 Claude；换模型改 ',
+    claudecli_note_2: ' 即可（可选，不设则用账号默认）。也可写进 ~/.zshrc 长期生效。',
+
     // 选择 key 弹窗
     pick_title: '选择一个 Key 生成 {title} curl',
 
@@ -304,6 +313,15 @@ const DICT = {
     cursor_foot_2: ' is auto-recognized by the backend as ',
     cursor_foot_3: '; keep Anthropic API Key off to avoid conflicts. In Agent mode use ',
     cursor_foot_4: ' to let the model read your local project.',
+
+    // Claude Code (CLI) card
+    card_claudecli: 'Use with Claude Code (CLI)',
+    claudecli_desc_1: 'Point the official Claude Code CLI at this gateway: set ',
+    claudecli_desc_2: ' to this gateway and ',
+    claudecli_desc_3: ' to your sk-key. Set the env vars below, then run ',
+    claudecli_desc_4: ':',
+    claudecli_note: 'The gateway passes Claude Code requests straight through to Claude. To switch models, change ',
+    claudecli_note_2: ' (optional — falls back to the account default). Add it to ~/.zshrc to persist.',
 
     // pick key modal
     pick_title: 'Pick a key to generate {title} curl',

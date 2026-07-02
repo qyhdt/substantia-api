@@ -36,6 +36,13 @@ const ENDPOINTS: Record<Fmt, { titleKey: TKey; noteKey: TKey; curl: (k: string, 
 
 // Cursor 经 OpenAI 兼容接入：Base URL 必须带 /v1。
 const CURSOR_BASE_URL = 'https://api.substantia.ai/v1'
+// Claude Code CLI 接入：ANTHROPIC_BASE_URL 不带 /v1（CLI 自己拼 /v1/messages）。
+const CLI_BASE_URL = CURSOR_BASE_URL.replace(/\/v1$/, '')
+const cliSnippet = (k: string, model: string) =>
+  `export ANTHROPIC_BASE_URL=${CLI_BASE_URL}
+export ANTHROPIC_AUTH_TOKEN=${k}
+export ANTHROPIC_MODEL=${model}
+claude`
 
 async function copyText(text: string) {
   try {
@@ -223,6 +230,28 @@ function Keys({ justIssued }: { justIssued?: string }) {
         )}
         <p className="ak-muted" style={{ fontSize: 12, marginTop: 8 }}>
           {t('cursor_foot_1')}<span className="ak-mono">{model.cursorName}</span>{t('cursor_foot_2')}<span className="ak-mono">{model.id}</span>{t('cursor_foot_3')}<span className="ak-mono">@文件 / @文件夹</span>{t('cursor_foot_4')}
+        </p>
+      </Card>
+
+      <Card title={t('card_claudecli')}>
+        <p className="ak-muted">
+          {t('claudecli_desc_1')}<span className="ak-mono">ANTHROPIC_BASE_URL</span>{t('claudecli_desc_2')}<span className="ak-mono">ANTHROPIC_AUTH_TOKEN</span>{t('claudecli_desc_3')}<span className="ak-mono">claude</span>{t('claudecli_desc_4')}
+        </p>
+        <ModelPicker model={model} onPick={setModel} />
+        <div className="ak-row" style={{ justifyContent: 'flex-end', gap: 8, marginBottom: 6 }}>
+          <CopyBtn text={cliSnippet('<你的 sk-key>', model.id)} label={t('copy_sample')} />
+          <button className="ak-btn primary" onClick={() => {
+            const usable = ((state.data as any[]) || []).filter((k) => k.key_plain && k.status === 'active')
+            const k = banner || usable[0]?.key_plain
+            if (!k) { setHint(t('copy_curl_nokey')); setTimeout(() => setHint(null), 4000); return }
+            copyText(cliSnippet(k, model.id))
+            setHint(t('copy_curl_done').replace('{title}', 'Claude Code').replace('{name}', model.id))
+            setTimeout(() => setHint(null), 2500)
+          }}>{t('copy_real_key')}</button>
+        </div>
+        <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{banner ? cliSnippet(banner, model.id) : cliSnippet('<你的 sk-key>', model.id)}</pre>
+        <p className="ak-muted" style={{ fontSize: 12, marginTop: 8 }}>
+          {t('claudecli_note')}<span className="ak-mono">ANTHROPIC_MODEL</span>{t('claudecli_note_2')}
         </p>
       </Card>
 

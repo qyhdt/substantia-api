@@ -60,6 +60,35 @@ def _merge_beta(*parts: Optional[str]) -> str:
     return ",".join(seen)
 
 
+# 来源是真 Claude CLI 时，把它自己的指纹头原样透传（只换 authorization）。
+# 只转发这些「安全」的指纹/协议头，绝不转发 authorization / x-api-key（下游 sk-key，
+# 不能泄漏到上游）、host、content-length（httpx 自算）等。
+_FORWARD_HEADERS = frozenset({
+    "user-agent", "anthropic-version", "anthropic-beta",
+    "x-app", "anthropic-dangerous-direct-browser-access",
+})
+_FORWARD_HEADER_PREFIXES = ("x-stainless-",)
+
+
+def is_claude_cli(client_headers: Optional[Dict[str, str]]) -> bool:
+    """入站请求是否来自真实 Claude Code CLI（据 UA / x-app 判断）。"""
+    if not client_headers:
+        return False
+    ua = (client_headers.get("user-agent") or "").lower()
+    xapp = (client_headers.get("x-app") or "").lower()
+    return ua.startswith("claude-cli/") or xapp == "cli"
+
+
+def _forwarded_fingerprint(client_headers: Dict[str, str]) -> Dict[str, str]:
+    """从入站头挑出可安全转发的指纹头（小写键）。"""
+    out: Dict[str, str] = {}
+    for k, v in client_headers.items():
+        lk = k.lower()
+        if lk in _FORWARD_HEADERS or lk.startswith(_FORWARD_HEADER_PREFIXES):
+            out[lk] = v
+    return out
+
+
 # 规范 Anthropic model id（透传到原生 API 必须用这些精确名）
 _CANON = {
     "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
@@ -116,10 +145,25 @@ def slot_oauth_token(slot: Slot) -> Optional[str]:
         return None
 
 
+def _has_identity(sys: Any) -> bool:
+    """system 里是否已带 Claude Code 身份（真 CLI 请求自带，避免重复注入）。"""
+    if isinstance(sys, str):
+        return CC_IDENTITY in sys
+    if isinstance(sys, list):
+        return any(
+            isinstance(b, dict) and b.get("type") == "text" and CC_IDENTITY in (b.get("text") or "")
+            for b in sys
+        )
+    return False
+
+
 def inject_identity(body: Dict[str, Any]) -> Dict[str, Any]:
-    """把 Claude Code 身份块放到 system 最前（保留客户端原有 system 在其后）。"""
-    cc = {"type": "text", "text": CC_IDENTITY}
+    """把 Claude Code 身份块放到 system 最前（保留客户端原有 system 在其后）。
+    幂等：若 system 里已含该身份（如来源就是真 CLI），原样返回不重复注入。"""
     sys = body.get("system")
+    if _has_identity(sys):
+        return body
+    cc = {"type": "text", "text": CC_IDENTITY}
     if sys is None:
         body["system"] = [cc]
     elif isinstance(sys, str):
@@ -221,12 +265,28 @@ def _count_existing_breakpoints(body: Dict[str, Any]) -> int:
     return n
 
 
-def upstream_for(slot: Slot, client_beta: Optional[str] = None) -> Tuple[str, Dict[str, str], bool]:
-    """返回 (base_url, headers, is_oauth)。is_oauth=True 表示需要注入身份。"""
+def upstream_for(slot: Slot, client_headers: Optional[Dict[str, str]] = None) -> Tuple[str, Dict[str, str], bool]:
+    """返回 (base_url, headers, is_oauth)。is_oauth=True 表示需要注入身份。
+
+    client_headers：入站请求头。来源若是真 Claude CLI（is_claude_cli），则原样转发它
+    自己的指纹头（UA / anthropic-beta / x-stainless-* 等），只把 authorization 换成 slot
+    的凭据——上游看到的就是一个真实 CLI 请求。否则合成对齐真 CLI 的指纹头（供 SDK/curl 用）。
+    """
+    client_headers = client_headers or {}
+    cli = is_claude_cli(client_headers)
+    client_beta = client_headers.get("anthropic-beta")
+
     if slot.type == SlotType.SUBSCRIPTION:
         tok = slot_oauth_token(slot)
         if not tok:
             raise RuntimeError(f"slot {slot.id} 无 OAuth token（凭据未就绪）")
+        if cli:
+            headers = _forwarded_fingerprint(client_headers)
+            headers["authorization"] = f"Bearer {tok}"
+            headers["content-type"] = "application/json"
+            headers.setdefault("anthropic-version", "2023-06-01")
+            headers["anthropic-beta"] = _merge_beta(headers.get("anthropic-beta"), "oauth-2025-04-20")
+            return ANTHROPIC_API, headers, True
         betas = _merge_beta(CLAUDE_CODE_BETA, client_beta, "oauth-2025-04-20")
         return ANTHROPIC_API, {
             "authorization": f"Bearer {tok}",
@@ -236,14 +296,20 @@ def upstream_for(slot: Slot, client_beta: Optional[str] = None) -> Tuple[str, Di
             "user-agent": CLAUDE_CLI_UA,
             **CC_IDENT_HEADERS,
         }, True
+
     # api_key slot：转发到其配置的端点，用其 key
     env = slot.env or {}
     base = (env.get("ANTHROPIC_BASE_URL") or ANTHROPIC_API).rstrip("/")
     key = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ANTHROPIC_API_KEY")
-    headers = {"anthropic-version": "2023-06-01", "content-type": "application/json",
-               "user-agent": CLAUDE_CLI_UA}
-    if client_beta:
-        headers["anthropic-beta"] = client_beta
+    if cli:
+        headers = _forwarded_fingerprint(client_headers)
+        headers["content-type"] = "application/json"
+        headers.setdefault("anthropic-version", "2023-06-01")
+    else:
+        headers = {"anthropic-version": "2023-06-01", "content-type": "application/json",
+                   "user-agent": CLAUDE_CLI_UA}
+        if client_beta:
+            headers["anthropic-beta"] = client_beta
     if key:
         headers["x-api-key"] = key
     return base, headers, False

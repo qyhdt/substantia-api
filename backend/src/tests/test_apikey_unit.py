@@ -150,6 +150,42 @@ def test_normalize_model_new_families():
     assert normalize_model("claude-sonnet-4.6") == "claude-sonnet-4-6"
 
 
+def test_is_claude_cli():
+    from services.apikey.passthrough import is_claude_cli
+    assert is_claude_cli({"user-agent": "claude-cli/2.1.195 (external, cli)"}) is True
+    assert is_claude_cli({"x-app": "cli"}) is True
+    assert is_claude_cli({"user-agent": "python-httpx/0.27"}) is False
+    assert is_claude_cli(None) is False
+
+
+def test_forwarded_fingerprint_drops_secrets():
+    from services.apikey.passthrough import _forwarded_fingerprint
+    fp = _forwarded_fingerprint({
+        "User-Agent": "claude-cli/2.1.195",
+        "anthropic-beta": "fine-grained-tool-streaming-2025-05-14",
+        "x-stainless-lang": "js",
+        "authorization": "Bearer sk-leak",
+        "x-api-key": "sk-leak",
+        "host": "example.com",
+    })
+    assert fp == {
+        "user-agent": "claude-cli/2.1.195",
+        "anthropic-beta": "fine-grained-tool-streaming-2025-05-14",
+        "x-stainless-lang": "js",
+    }
+
+
+def test_inject_identity_idempotent():
+    from services.apikey.passthrough import inject_identity, CC_IDENTITY
+    # 已含身份（真 CLI 请求）→ 不重复注入
+    already = {"system": [{"type": "text", "text": CC_IDENTITY + " ..."}]}
+    assert inject_identity(dict(already))["system"] == already["system"]
+    # 无身份 → 注入到最前
+    got = inject_identity({"system": "hi"})
+    assert got["system"][0]["text"] == CC_IDENTITY
+    assert got["system"][1]["text"] == "hi"
+
+
 def test_parse_usage_embedded_json():
     out = 'some log line\n{"result":"hi","usage":{"input_tokens":3,"output_tokens":2}}\n'
     parsed = _parse_usage(out)

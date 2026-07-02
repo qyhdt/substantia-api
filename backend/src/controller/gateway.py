@@ -205,7 +205,7 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
     raw = {**raw, "model": pt.normalize_model(raw.get("model")) or settings.AK_DEFAULT_MODEL}
     model = raw["model"]
     stream = bool(raw.get("stream"))
-    client_beta = request.headers.get("anthropic-beta")
+    client_headers = dict(request.headers)  # 来源是真 CLI 时原样转发其指纹头
     max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS)
 
     async def pick():
@@ -220,7 +220,7 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
         last = None
         for _ in range(max_attempts):
             slot = await pick()
-            base, headers, oauth = pt.upstream_for(slot, client_beta)
+            base, headers, oauth = pt.upstream_for(slot, client_headers)
             body = pt.inject_identity(dict(raw)) if oauth else dict(raw)
             pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点（多轮重复前缀走 10% 价）
             audit.record_upstream(endpoint="anthropic", body=body, uid=uid,
@@ -249,7 +249,7 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
 
     # 流式：单次尝试，逐字节原样回传，结束后按 usage 计费
     slot = await pick()
-    base, headers, oauth = pt.upstream_for(slot, client_beta)
+    base, headers, oauth = pt.upstream_for(slot, client_headers)
     body = pt.inject_identity(dict(raw)) if oauth else dict(raw)
     pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点
     audit.record_upstream(endpoint="anthropic", body=body, uid=uid,
@@ -287,33 +287,16 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
     return sse_response(gen())
 
 
-@router.post("/messages", summary="Anthropic Messages 兼容入口（sk-key；带 tools 自动走原生透传）")
+@router.post("/messages", summary="Anthropic Messages 兼容入口（sk-key；全部原生透传，支持 Claude Code CLI）")
 async def messages(payload: MessagesIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
     model = pt.normalize_model(payload.model) or settings.AK_DEFAULT_MODEL
     usage_svc.precheck(key, user, model)  # 有效余额 / key 封顶 / 模型白名单
 
-    # 带 tools → 原生透传（支持 agent 工具调用）；否则走 CLI（便宜）
+    # 全部走原生 API 透传（不再压平成文本走 CLI）：保留完整消息结构、tools、多模态；
+    # 来源若是真 Claude Code CLI，upstream_for 会原样转发其指纹头。
     raw = await request.json()
-    if raw.get("tools"):
-        return await _passthrough_anthropic(key, user, raw, request)
-
-    prompt = _build_prompt(payload)
-    if not prompt:
-        raise HTTPException(status_code=400, detail="empty prompt")
-
-    result, billed = await _run_and_bill(key, user, model, prompt, request)
-    resp = _anthropic_response(result, result.model)
-    resp["_substantia"] = {
-        "slot_id": result.slot_id, "slot_type": result.slot_type,
-        "cost_micro_usd": billed["cost_micro_usd"], "attempts": result.attempts,
-        "estimated_tokens": result.estimated,
-    }
-    if not result.ok:
-        resp["stop_reason"] = "error"
-    if payload.stream:
-        return _sse_stream(resp)
-    return JSONResponse(resp)
+    return await _passthrough_anthropic(key, user, raw, request)
 
 
 # ============================ OpenAI Chat Completions 兼容 ============================
@@ -394,7 +377,7 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
     want_stream = bool(raw.get("stream"))
     anth = pt.openai_to_anthropic(raw)
     anth["stream"] = False
-    client_beta = request.headers.get("anthropic-beta")
+    client_headers = dict(request.headers)
     max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS)
 
     last = None
@@ -404,7 +387,7 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
             await asyncio.to_thread(dm.ensure_slot_container, slot)
         except Exception:
             pass
-        base, headers, oauth = pt.upstream_for(slot, client_beta)
+        base, headers, oauth = pt.upstream_for(slot, client_headers)
         body = pt.inject_identity(dict(anth)) if oauth else dict(anth)
         pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点（Cursor 经此链路）
         audit.record_upstream(endpoint="openai", body=body, uid=uid,
@@ -441,24 +424,12 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
                         status_code=(last.status_code if last is not None else 502))
 
 
-@router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key；带 tools 自动走原生透传）")
+@router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key；全部翻译成原生透传）")
 async def chat_completions(payload: ChatCompletionsIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
     model = pt.normalize_model(payload.model) or settings.AK_DEFAULT_MODEL
     usage_svc.precheck(key, user, model)
 
-    # 带 tools → 翻译透传（支持 agent 工具调用）；否则走 CLI（便宜）
+    # 全部翻译成 Anthropic 原生请求再透传（不再压平走 CLI）：保留 tools、多模态、完整结构。
     raw = await request.json()
-    if raw.get("tools"):
-        return await _passthrough_openai(key, user, raw, request)
-
-    # OpenAI 的 system 是 messages 里 role=system 的一条；_build_prompt 已支持
-    prompt = _build_prompt(MessagesIn(messages=payload.messages))
-    if not prompt:
-        raise HTTPException(status_code=400, detail="empty prompt")
-
-    result, _billed = await _run_and_bill(key, user, model, prompt, request)
-    resp = _openai_response(result, result.model)
-    if payload.stream:
-        return _openai_sse_stream(resp)
-    return JSONResponse(resp)
+    return await _passthrough_openai(key, user, raw, request)
