@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
+import { BRAND } from './brand'
 
 export type Lang = 'zh' | 'en'
 
@@ -23,7 +24,7 @@ const DICT = {
     hero_cta2: '查看价格',
 
     // 功能
-    features_title: '为什么选 Substantia',
+    features_title: `为什么选 ${BRAND.name}`,
     feat1_t: 'Anthropic 兼容',
     feat1_d: '完全兼容 Anthropic Messages API（/v1/messages）。现有 SDK 改一下 base_url 和 key 即可接入，零改造。',
     feat2_t: '真 Claude 算力',
@@ -45,7 +46,7 @@ const DICT = {
     pricing_cta: '注册领 $20 →',
 
     // 落地页底部 / 登录
-    footer_tag: 'Substantia API · 面向开发者的 Claude 网关',
+    footer_tag: `${BRAND.name} API · 面向开发者的 Claude 网关`,
     back_home: '← 返回首页',
     email: '邮箱',
     password: '密码（≥6 位）',
@@ -99,8 +100,8 @@ const DICT = {
     copy_real_key: '一键复制（填入真实 key）',
     anthropic_compat: 'Anthropic 兼容',
     openai_compat: 'OpenAI 兼容',
-    anthropic_note: '官方 anthropic SDK：base_url = https://api.substantia.ai，key 当作 x-api-key',
-    openai_note: '官方 openai SDK：base_url = https://api.substantia.ai/v1，key 当作 api_key（Bearer）',
+    anthropic_note: `官方 anthropic SDK：base_url = https://${BRAND.apiHost}，key 当作 x-api-key`,
+    openai_note: `官方 openai SDK：base_url = https://${BRAND.apiHost}/v1，key 当作 api_key（Bearer）`,
     copy_curl_done: '已复制 {title} curl（含 {name}）✓',
     copy_curl_nokey: '没有可自动填入的 key —— 旧 key 不保存明文，请先「生成」一个新 key',
     model_pick: '示例模型：',
@@ -209,7 +210,7 @@ const DICT = {
     hero_cta1: 'Get started free',
     hero_cta2: 'See pricing',
 
-    features_title: 'Why Substantia',
+    features_title: `Why ${BRAND.name}`,
     feat1_t: 'Anthropic-compatible',
     feat1_d: 'Fully compatible with the Anthropic Messages API (/v1/messages). Point your existing SDK at our base_url and key — zero rewrites.',
     feat2_t: 'Real Claude power',
@@ -229,7 +230,7 @@ const DICT = {
     pricing_note: '* Benchmarked to Anthropic official rates: struck-through is the official price, bold is your price (50% off). Balance settled in micro-USD.',
     pricing_cta: 'Claim $20 free →',
 
-    footer_tag: 'Substantia API · the Claude gateway for developers',
+    footer_tag: `${BRAND.name} API · the Claude gateway for developers`,
     back_home: '← Back home',
     email: 'Email',
     password: 'Password (≥6 chars)',
@@ -284,8 +285,8 @@ const DICT = {
     copy_real_key: 'Copy with real key',
     anthropic_compat: 'Anthropic-compatible',
     openai_compat: 'OpenAI-compatible',
-    anthropic_note: 'Official Anthropic SDK: base_url = https://api.substantia.ai, key as x-api-key',
-    openai_note: 'Official OpenAI SDK: base_url = https://api.substantia.ai/v1, key as api_key (Bearer)',
+    anthropic_note: `Official Anthropic SDK: base_url = https://${BRAND.apiHost}, key as x-api-key`,
+    openai_note: `Official OpenAI SDK: base_url = https://${BRAND.apiHost}/v1, key as api_key (Bearer)`,
     copy_curl_done: 'Copied {title} curl (with {name}) ✓',
     copy_curl_nokey: 'No key available to auto-fill — old keys keep no plaintext, please "Generate" a new key first',
 

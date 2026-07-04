@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fmtUsd, portal } from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 import { useI18n, type TKey } from '../i18n'
+import { BRAND } from '../brand'
 
 // 两种协议：Anthropic 兼容 + OpenAI 兼容。同一把 sk-key 通用。
 type Fmt = 'anthropic' | 'openai'
@@ -21,21 +22,21 @@ const ENDPOINTS: Record<Fmt, { titleKey: TKey; noteKey: TKey; curl: (k: string, 
   anthropic: {
     titleKey: 'anthropic_compat' as TKey,
     noteKey: 'anthropic_note',
-    curl: (k, model) => `curl https://api.substantia.ai/v1/messages \\
+    curl: (k, model) => `curl https://${BRAND.apiHost}/v1/messages \\
   -H "x-api-key: ${k}" -H "content-type: application/json" \\
   -d '{"model":"${model}","messages":[{"role":"user","content":"hello"}]}'`,
   },
   openai: {
     titleKey: 'openai_compat' as TKey,
     noteKey: 'openai_note',
-    curl: (k, model) => `curl https://api.substantia.ai/v1/chat/completions \\
+    curl: (k, model) => `curl https://${BRAND.apiHost}/v1/chat/completions \\
   -H "Authorization: Bearer ${k}" -H "content-type: application/json" \\
   -d '{"model":"${model}","messages":[{"role":"user","content":"hello"}]}'`,
   },
 }
 
 // Cursor 经 OpenAI 兼容接入：Base URL 必须带 /v1。
-const CURSOR_BASE_URL = 'https://api.substantia.ai/v1'
+const CURSOR_BASE_URL = `https://${BRAND.apiHost}/v1`
 // Claude Code CLI 接入：ANTHROPIC_BASE_URL 不带 /v1（CLI 自己拼 /v1/messages）。
 const CLI_BASE_URL = CURSOR_BASE_URL.replace(/\/v1$/, '')
 const cliSnippet = (k: string, model: string) =>

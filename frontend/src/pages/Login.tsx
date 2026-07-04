@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { auth } from '../api'
 import { getDeviceId } from '../device'
+import { BRAND } from '../brand'
 import { useI18n, LangToggle } from '../i18n'
 
 export function Login({ initialMode = 'login', onAuthed, onBack }: {
@@ -96,7 +97,7 @@ export function Login({ initialMode = 'login', onAuthed, onBack }: {
         <LangToggle />
       </div>
       <div className="ak-card">
-        <h2>Substantia <span style={{ color: 'var(--accent)' }}>{t('brand_tag')}</span></h2>
+        <h2>{BRAND.name} <span style={{ color: 'var(--accent)' }}>{t('brand_tag')}</span></h2>
         <p className="ak-muted">{mode === 'login' ? t('login') : t('free_trial_note')}</p>
         <form onSubmit={submit}>
           <input className="ak-input" type="email" placeholder={t('email')} value={email}

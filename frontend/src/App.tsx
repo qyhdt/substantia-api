@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './ui.css'
 import { auth, fmtUsd, portal } from './api'
+import { BRAND } from './brand'
 import { useI18n, LangToggle } from './i18n'
 import { Landing } from './pages/Landing'
 import { Login } from './pages/Login'
@@ -74,7 +75,7 @@ export default function App() {
   return (
     <div className="ak-app">
       <div className="ak-top">
-        <div className="ak-brand">Substantia <span>{t('brand_tag')}</span></div>
+        <div className="ak-brand">{BRAND.name} <span>{t('brand_tag')}</span></div>
         <div className="ak-userbox">
           {isAdmin && (
             <div className="ak-tabs" style={{ margin: 0 }}>

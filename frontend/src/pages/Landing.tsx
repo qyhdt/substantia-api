@@ -1,4 +1,5 @@
 import { useI18n, LangToggle } from '../i18n'
+import { BRAND } from '../brand'
 
 // Anthropic 官网价（每百万 token，美元）。展示时同时给出 ×50% 的实付价。
 const DISCOUNT = 0.5
@@ -16,7 +17,7 @@ export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => vo
     <div className="lp">
       {/* 顶栏 */}
       <nav className="lp-nav">
-        <div className="lp-brand">Substantia <span>{t('brand_tag')}</span></div>
+        <div className="lp-brand">{BRAND.name} <span>{t('brand_tag')}</span></div>
         <div className="lp-nav-links">
           <a href="#features">{t('nav_features')}</a>
           <a href="#pricing">{t('nav_pricing')}</a>
