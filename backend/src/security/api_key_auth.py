@@ -16,13 +16,16 @@ from fastapi import HTTPException, Request, status
 
 from utils import db as db_util
 
-KEY_PREFIX = "sk-substantia-"
+KEY_PREFIX = "sk-substantia-"  # 默认/回退前缀；实际按请求品牌（current_brand）取，见 generate_key
 
 
 def generate_key() -> tuple[str, str, str]:
-    """返回 (明文 key, 展示用 prefix, sha256 hash)。明文只此一次。"""
-    plain = KEY_PREFIX + secrets.token_urlsafe(32)
-    display = plain[: len(KEY_PREFIX) + 6] + "…"
+    """返回 (明文 key, 展示用 prefix, sha256 hash)。明文只此一次。
+    前缀按当前请求品牌（yayaok→sk-yaya-，其余→sk-substantia-）；校验走 sha256 哈希，与前缀无关。"""
+    from config.brands import current_brand
+    prefix = current_brand().get("key_prefix") or KEY_PREFIX
+    plain = prefix + secrets.token_urlsafe(32)
+    display = plain[: len(prefix) + 6] + "…"
     return plain, display, hash_key(plain)
 
 
