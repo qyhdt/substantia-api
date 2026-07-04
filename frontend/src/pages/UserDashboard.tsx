@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { fmtUsd, portal } from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 import { useI18n, type TKey } from '../i18n'
@@ -115,7 +115,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
   const [name, setName] = useState('default')
   const [busy, setBusy] = useState(false)
   const [pick, setPick] = useState<any[] | null>(null)   // 多 key 时弹窗候选
-  const [pickFmt, setPickFmt] = useState<Fmt>('anthropic')
+  // 弹窗选中 key 后如何生成复制内容（curl / export / --settings 通用）
+  const [pickBuild, setPickBuild] = useState<{ build: (k: string) => string; title: string } | null>(null)
   const [open, setOpen] = useState<Fmt | null>('anthropic') // 当前展开的协议示例
   const [hint, setHint] = useState<string | null>(null)
   const [model, setModel] = useState<ModelInfo>(MODELS[0])  // 示例展示用的模型
@@ -140,8 +141,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
     state.reload()
   }
 
-  // 一键复制可直接运行的测试 curl（指定协议）：自动填入真实 key。多个可用 key 时弹窗选。
-  async function copyTestCurl(fmt: Fmt) {
+  // 一键复制可直接运行的片段（curl / export / --settings）：自动填入真实 key。多个可用 key 时弹窗选。
+  async function copyWithKey(build: (k: string) => string, title: string) {
     const keys: any[] = (state.data as any[]) || []
     const usable = keys.filter((k) => k.key_plain && k.status === 'active')
     if (usable.length === 0) {
@@ -150,12 +151,12 @@ function Keys({ justIssued }: { justIssued?: string }) {
       return
     }
     if (usable.length === 1) {
-      await copyText(ENDPOINTS[fmt].curl(usable[0].key_plain, model.id))
-      setHint(t('copy_curl_done').replace('{title}', t(ENDPOINTS[fmt].titleKey)).replace('{name}', usable[0].name))
+      await copyText(build(usable[0].key_plain))
+      setHint(t('copy_curl_done').replace('{title}', title).replace('{name}', usable[0].name))
       setTimeout(() => setHint(null), 2500)
       return
     }
-    setPickFmt(fmt); setPick(usable)  // 多个 → 弹窗选
+    setPickBuild({ build, title }); setPick(usable)  // 多个 → 弹窗选
   }
 
   return (
@@ -193,7 +194,7 @@ function Keys({ justIssued }: { justIssued?: string }) {
                   <p className="ak-muted" style={{ fontSize: 12, margin: '0 0 8px' }}>{t(e.noteKey)}</p>
                   <div className="ak-row" style={{ justifyContent: 'flex-end', gap: 8, marginBottom: 6 }}>
                     <CopyBtn text={e.curl('<你的 sk-key>', model.id)} label={t('copy_sample')} />
-                    <button className="ak-btn primary" onClick={() => copyTestCurl(fmt)}>{t('copy_real_key')}</button>
+                    <button className="ak-btn primary" onClick={() => copyWithKey((k) => e.curl(k, model.id), t(e.titleKey))}>{t('copy_real_key')}</button>
                   </div>
                   <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{sample}</pre>
                 </div>
@@ -243,14 +244,7 @@ function Keys({ justIssued }: { justIssued?: string }) {
         <ModelPicker model={model} onPick={setModel} />
         <div className="ak-row" style={{ justifyContent: 'flex-end', gap: 8, marginBottom: 6 }}>
           <CopyBtn text={cliSnippet('<你的 sk-key>', model.id)} label={t('copy_sample')} />
-          <button className="ak-btn primary" onClick={() => {
-            const usable = ((state.data as any[]) || []).filter((k) => k.key_plain && k.status === 'active')
-            const k = banner || usable[0]?.key_plain
-            if (!k) { setHint(t('copy_curl_nokey')); setTimeout(() => setHint(null), 4000); return }
-            copyText(cliSnippet(k, model.id))
-            setHint(t('copy_curl_done').replace('{title}', 'Claude Code').replace('{name}', model.id))
-            setTimeout(() => setHint(null), 2500)
-          }}>{t('copy_real_key')}</button>
+          <button className="ak-btn primary" onClick={() => copyWithKey((k) => cliSnippet(k, model.id), 'Claude Code')}>{t('copy_real_key')}</button>
         </div>
         <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{banner ? cliSnippet(banner, model.id) : cliSnippet('<你的 sk-key>', model.id)}</pre>
         <p className="ak-muted" style={{ fontSize: 12, marginTop: 8 }}>
@@ -261,20 +255,21 @@ function Keys({ justIssued }: { justIssued?: string }) {
         </p>
         <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: '6px 0 0', fontSize: 12 }}>{cliSettingsSnippet(banner || '<你的 sk-key>', model.id)}</pre>
         <div className="ak-row" style={{ gap: 8, marginTop: 6 }}>
-          <CopyBtn text={cliSettingsSnippet(banner || '<你的 sk-key>', model.id)} />
+          <CopyBtn text={cliSettingsSnippet('<你的 sk-key>', model.id)} label={t('copy_sample')} />
+          <button className="ak-btn primary" onClick={() => copyWithKey((k) => cliSettingsSnippet(k, model.id), 'Claude Code --settings')}>{t('copy_real_key')}</button>
         </div>
       </Card>
 
-      {pick && (
+      {pick && pickBuild && (
         <div className="ak-modal-bg" onClick={() => setPick(null)}>
           <div className="ak-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>{t('pick_title').replace('{title}', t(ENDPOINTS[pickFmt].titleKey))}</h3>
+            <h3 style={{ marginTop: 0 }}>{t('pick_title').replace('{title}', pickBuild.title)}</h3>
             {pick.map((k) => (
               <button key={k.id} className="ak-btn" style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 8 }}
                 onClick={async () => {
-                  await copyText(ENDPOINTS[pickFmt].curl(k.key_plain, model.id))
+                  await copyText(pickBuild.build(k.key_plain))
                   setPick(null)
-                  setHint(t('copy_curl_done').replace('{title}', t(ENDPOINTS[pickFmt].titleKey)).replace('{name}', k.name))
+                  setHint(t('copy_curl_done').replace('{title}', pickBuild.title).replace('{name}', k.name))
                   setTimeout(() => setHint(null), 2500)
                 }}>
                 {k.name} · <span className="ak-mono">{k.key_prefix}</span>
@@ -364,26 +359,48 @@ function Topups() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
+  // 支付渠道：polar=信用卡(美元) / xunhupay=微信·支付宝(人民币)。默认选第一个可用的。
+  const polarOn = enabled.data ? enabled.data.enabled !== false : true
+  const xunhupayOn = !!enabled.data?.xunhupay_enabled
+  const rmbPerUsd = enabled.data?.rmb_per_usd || 7.2
+  const [method, setMethod] = useState<'polar' | 'xunhupay'>('polar')
+  useEffect(() => {
+    if (!enabled.data) return
+    if (!polarOn && xunhupayOn) setMethod('xunhupay')
+    else if (polarOn) setMethod('polar')
+  }, [enabled.data, polarOn, xunhupayOn])
+
   const bonusFor = (usd: number) => {
     let b = 0
     for (const tr of tiers) if (usd + 1e-9 >= tr.threshold_usd) b = tr.bonus_usd
     return b
   }
   const curBonus = bonusFor(amount)
+  const rmb = Math.round(amount * rmbPerUsd * 100) / 100
 
   async function go() {
     setBusy(true); setMsg(null)
     try {
-      const r = await portal.recharge(amount)
-      window.location.href = r.url           // 跳转 Polar 托管结账页
+      const r = method === 'xunhupay' ? await portal.rechargeXunhupay(amount) : await portal.recharge(amount)
+      window.location.href = r.url           // 跳转托管结账页（Polar / 虎皮椒收银台）
     } catch (e: any) {
       setMsg(e?.message || t('failed')); setBusy(false)
     }
   }
-  const off = enabled.data && enabled.data.enabled === false
+  const off = method === 'polar' ? !polarOn : !xunhupayOn
   return (
     <>
       <Card title={t('card_recharge')}>
+        {(polarOn && xunhupayOn) && (
+          <div className="ak-row" style={{ marginBottom: 12 }}>
+            <button className={`ak-btn ${method === 'polar' ? 'primary' : ''}`} onClick={() => setMethod('polar')}>
+              💳 {t('pay_card')}
+            </button>
+            <button className={`ak-btn ${method === 'xunhupay' ? 'primary' : ''}`} onClick={() => setMethod('xunhupay')}>
+              🟢 {t('pay_wx_alipay')}
+            </button>
+          </div>
+        )}
         <div className="ak-row">
           {presets.map((v) => {
             const b = bonusFor(v)
@@ -404,13 +421,19 @@ function Topups() {
             <span style={{ color: '#16a34a', marginLeft: 6 }}>(+${curBonus} {t('bonus_word')})</span>
           </div>
         )}
+        {method === 'xunhupay' && (
+          <div style={{ marginTop: 8, fontSize: 13 }}>
+            {t('xunhupay_charge')} <b>¥{rmb}</b>
+            <span className="ak-muted" style={{ marginLeft: 6, fontSize: 12 }}>(1 USD ≈ {rmbPerUsd} CNY)</span>
+          </div>
+        )}
         <div className="ak-muted" style={{ marginTop: 8, fontSize: 12 }}>
           {t('bonus_tiers_title')}: {tiers.map((tr) => `$${tr.threshold_usd}→+$${tr.bonus_usd}`).join(' · ')}
         </div>
         {off && <div className="ak-muted" style={{ marginTop: 8 }}>{t('recharge_off')}</div>}
         {msg && <div className="ak-err">{msg}</div>}
         <div className="ak-muted" style={{ marginTop: 10, fontSize: 12 }}>
-          {t('recharge_note')}
+          {method === 'xunhupay' ? t('recharge_note_wx') : t('recharge_note')}
         </div>
       </Card>
       <Card title={t('card_recharge_log')}>

@@ -55,9 +55,10 @@ export const portal = {
   usage: (limit = 50, offset = 0) => api.get(`/portal/usage?limit=${limit}&offset=${offset}`),
   topups: () => api.get('/portal/topups'),
   submitTopup: (amount_usd: number, reason?: string) => api.post('/portal/topups', { amount_usd, reason }),
-  // 自助充值（Polar）
+  // 自助充值（Polar 信用卡 / 虎皮椒 微信·支付宝）
   rechargeEnabled: () => api.get('/portal/recharge/enabled'),
   recharge: (amount_usd: number) => api.post('/portal/recharge', { amount_usd }),
+  rechargeXunhupay: (amount_usd: number) => api.post('/portal/recharge/xunhupay', { amount_usd }),
   payments: (limit = 50, offset = 0) => api.get(`/portal/payments?limit=${limit}&offset=${offset}`),
 }
 
