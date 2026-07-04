@@ -161,3 +161,23 @@ substantia-ai / substantia-api （唯一代码源）
    - 部署 substantia 栈；验证两域名各自品牌
    - 停用 `yaya-*` 容器 + `yaya-api-db`；归档 prod-ai/prod-api 仓库
 4. **验证**：两域名品牌正确、API key 前缀按域名、邮件署名按域名、同库数据一致。
+
+---
+
+## 进度状态（接力用）
+
+**已开工（substantia-ai 分支 `feat/multibrand-by-domain`，未合并 main，未 build 验证）：**
+- `frontend/lib/site.ts`：`BRANDS{substantia,yaya}` + `getBrand(host)`（yayaok→yaya）；`SITE` 保留=substantia 向后兼容
+- `frontend/lib/site-server.ts`：`getBrandFromRequest()`（读 Host，Next15 async headers）
+- `frontend/app/(site)/[lang]/layout.tsx`：metadata（title/SEO/OG）已按域名切，转 `force-dynamic`
+
+**新会话第一步**：`cd substantia-ai/frontend && npm i && npx next build` 验证上面无误 → 合并分支。
+
+**待续（按此顺序）：**
+1. 前端可见品牌名：`components/site/Nav.tsx`、`Footer.tsx` 的 logo/名称 → 用 `getBrandFromRequest()`（服务端组件）或从 layout 传 brand prop；`organizationJsonLd` 传入 brand
+2. i18n 文案里的品牌串（`lib/dictionaries/zh.ts`/`en.ts` 若含"境核/Substantia"）→ brand 化
+3. 后端 substantia-api：`config/brands.py` + Host 中间件（`request.state.brand`）→ `security/api_key_auth.py` key 前缀、`email_service.py` 署名、支付回跳按 brand
+4. 部署：edge-nginx 把 yayaok.com/www/api 的 server_name 指到 substantia 容器；部署验证两域名品牌
+5. 停用 yaya-* 容器 + yaya-api-db；归档 prod-ai/prod-api
+
+**注意**：force-dynamic 使 [lang] 路由改为按请求渲染（品牌按域名必需，牺牲静态缓存，符合"一套部署双域名"）。
