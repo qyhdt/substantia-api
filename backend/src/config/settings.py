@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     CLAUDE_SLOTS_JSON: str = ""
     # slot 持久化文件（admin CRUD 写这里）；留空 = <CLAUDE_WORKSPACE_ROOT>/slots.json
     CLAUDE_SLOTS_FILE: str = ""
+    # 共享账号池目录（与境核AI/小智账号池同源）：配了则每个 <dir>/<acc>/.credentials.json = 一个订阅 slot，
+    # 自动轮询。小智后台 add-account.sh 新增账号，这里免重启即纳入（probe_loop 周期重扫）。留空 = 用 slots.json。
+    CLAUDE_SHARED_ACCOUNTS_DIR: str = ""
+    # 共享账号 slot 用的基础镜像（凭据由 creds_dir 挂载覆盖，镜像只需带 claude CLI）
+    CLAUDE_SHARED_ACCOUNTS_IMAGE: str = ""
 
     # ---- 健康探针 / 保活 / 故障转移 ----
     # 启动是否拉起所有 enabled slot 容器 + 起健康探针
