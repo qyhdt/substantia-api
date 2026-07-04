@@ -253,6 +253,9 @@ function Keys({ justIssued }: { justIssued?: string }) {
         <p className="ak-muted" style={{ fontSize: 12, marginTop: 8 }}>
           {t('claudecli_note')}<span className="ak-mono">ANTHROPIC_MODEL</span>{t('claudecli_note_2')}
         </p>
+        <p className="ak-muted" style={{ fontSize: 12, marginTop: 4 }}>
+          {t('claudecli_warn_1')}<span className="ak-mono">~/.claude/settings.json</span>{t('claudecli_warn_2')}<span className="ak-mono">env</span>{t('claudecli_warn_3')}
+        </p>
       </Card>
 
       {pick && (
