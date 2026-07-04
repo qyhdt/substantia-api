@@ -14,6 +14,7 @@ from services.apikey import payments as payments_svc
 from services.apikey import topups as topups_svc
 from services.apikey import usage as usage_svc
 from services.apikey import users as users_svc
+from services.apikey import xunhupay as xunhupay_svc
 
 router = APIRouter(prefix="/portal", tags=["portal"], dependencies=[Depends(require_access_token)])
 
@@ -106,11 +107,24 @@ async def submit_topup(payload: TopupIn, user: dict = Depends(current_user)):
     return await topups_svc.submit(_uid(user), to_micro(payload.amount_usd), payload.reason)
 
 
-# ---------- 自助充值（Polar）----------
+# ---------- 自助充值（Polar 信用卡 / 虎皮椒 微信·支付宝）----------
 @router.get("/recharge/enabled", summary="充值渠道是否可用 + 赠送档")
 async def recharge_enabled():
-    return {"enabled": payments_svc.configured(), "provider": "polar",
-            "bonus_tiers": payments_svc.bonus_tiers()}
+    polar_on = payments_svc.configured()
+    xunhupay_on = xunhupay_svc.configured()
+    methods = []
+    if polar_on:
+        methods.append({"id": "polar", "currency": "usd", "label_zh": "信用卡", "label_en": "Credit Card"})
+    if xunhupay_on:
+        methods.append({"id": "xunhupay", "currency": "cny", "label_zh": "微信 / 支付宝", "label_en": "WeChat / Alipay"})
+    return {
+        "enabled": polar_on,                 # 向后兼容：老前端只看 Polar
+        "provider": "polar",
+        "xunhupay_enabled": xunhupay_on,
+        "methods": methods,
+        "bonus_tiers": payments_svc.bonus_tiers(),
+        "rmb_per_usd": xunhupay_svc._rmb_per_usd(),
+    }
 
 
 @router.post("/recharge", summary="自助充值：创建 Polar 结账，返回跳转 URL")
@@ -118,6 +132,11 @@ async def recharge(payload: RechargeIn, user: dict = Depends(current_user)):
     u = await users_svc.get_user(_uid(user))
     email = (u or {}).get("email")
     return await payments_svc.create_checkout(_uid(user), email, payload.amount_usd)
+
+
+@router.post("/recharge/xunhupay", summary="自助充值：创建虎皮椒结账（微信/支付宝），返回收银台 URL")
+async def recharge_xunhupay(payload: RechargeIn, user: dict = Depends(current_user)):
+    return await xunhupay_svc.create_checkout(_uid(user), payload.amount_usd)
 
 
 @router.get("/payments", summary="我的充值订单（分页）")

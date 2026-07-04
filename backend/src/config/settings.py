@@ -117,6 +117,17 @@ class Settings(BaseSettings):
     # 充值页直达地址（?tab=topups 让前端直接打开「充值」标签页）；用于余额不足时的引导文案
     RECHARGE_URL: str = "https://dev.substantia.ai/?tab=topups"
 
+    # ---------- 充值（虎皮椒 xunhupay，国内个人收款，微信/支付宝，收人民币）----------
+    # 在虎皮椒后台「我的支付渠道」拿 AppID / AppSecret，签约成功后填入 .env。留空 = 不显示该渠道。
+    XUNHUPAY_APPID: str = ""            # 渠道 AppID
+    XUNHUPAY_APPSECRET: str = ""        # 渠道 AppSecret（MD5 签名用）
+    XUNHUPAY_API_BASE: str = "https://api.xunhupay.com"   # 接口域名（一般不用改）
+    # 用户下单金额仍以美元计（余额是 micro-USD），按此汇率换成人民币向虎皮椒收款。
+    XUNHUPAY_RMB_PER_USD: float = 7.2
+    # 异步通知 / 同步跳回地址；留空则从 PAYMENT_RETURN_URL 的域名自动推导。
+    XUNHUPAY_NOTIFY_URL: str = ""       # 服务器回调 → /api/webhooks/xunhupay
+    XUNHUPAY_RETURN_URL: str = ""       # 付款后浏览器跳回（默认用 RECHARGE_URL）
+
     # ---------- APIKey 分发（下游令牌 / 计费 / 网关）----------
     # 新用户注册自动赠送的余额（微美元，$1 = 1_000_000）。默认 $20。进「试用桶」。
     AK_TRIAL_GRANT_MICRO_USD: int = 20_000_000

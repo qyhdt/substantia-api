@@ -186,6 +186,40 @@ def test_inject_identity_idempotent():
     assert got["system"][1]["text"] == "hi"
 
 
+def test_xunhupay_sign_algorithm():
+    import hashlib
+    from services.apikey.xunhupay import _sign
+    params = {"appid": "123", "total_fee": "10.00", "nonce_str": "abc", "empty": "", "none": None, "hash": "OLD"}
+    got = _sign(params, "secret")
+    # 去掉 hash 与空/None，按 key 升序拼接，末尾接 secret，md5 小写
+    raw = "appid=123&nonce_str=abc&total_fee=10.00" + "secret"
+    assert got == hashlib.md5(raw.encode()).hexdigest()
+    # 幂等：同参数同签名
+    assert _sign(params, "secret") == got
+    # 篡改任一值 → 签名变化
+    assert _sign({**params, "total_fee": "10.01"}, "secret") != got
+
+
+def test_xunhupay_configured():
+    from services.apikey import xunhupay
+    from config.settings import settings
+    old_a, old_s = settings.XUNHUPAY_APPID, settings.XUNHUPAY_APPSECRET
+    try:
+        settings.XUNHUPAY_APPID, settings.XUNHUPAY_APPSECRET = "", ""
+        assert xunhupay.configured() is False
+        settings.XUNHUPAY_APPID, settings.XUNHUPAY_APPSECRET = "app", "sec"
+        assert xunhupay.configured() is True
+    finally:
+        settings.XUNHUPAY_APPID, settings.XUNHUPAY_APPSECRET = old_a, old_s
+
+
+def test_xunhupay_out_trade_no_prefix():
+    from services.apikey.xunhupay import _new_out_trade_no
+    otn = _new_out_trade_no(42)
+    assert otn.startswith("sx_42_") and len(otn) > 10
+    assert _new_out_trade_no(42) != otn  # 每次不同
+
+
 def test_parse_usage_embedded_json():
     out = 'some log line\n{"result":"hi","usage":{"input_tokens":3,"output_tokens":2}}\n'
     parsed = _parse_usage(out)
