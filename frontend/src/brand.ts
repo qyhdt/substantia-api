@@ -7,3 +7,8 @@ function resolve(): { name: string; key: string; apiHost: string } {
 }
 
 export const BRAND = resolve();
+
+// 标签标题按品牌（index.html 里是静态 "Substantia ..."，这里客户端加载时改）
+if (typeof document !== "undefined" && BRAND.key !== "substantia") {
+  document.title = document.title.replace(/Substantia/g, BRAND.name);
+}
