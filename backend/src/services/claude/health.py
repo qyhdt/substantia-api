@@ -73,6 +73,12 @@ async def probe_loop() -> None:
     log.info("claude probe_loop 启动，周期 %ds", interval)
     while True:
         try:
+            # 先重扫共享账号目录（与小智账号池同源）：新增/删除账号免重启即生效
+            try:
+                from services.claude.registry import refresh_shared_slots
+                await asyncio.to_thread(refresh_shared_slots)
+            except Exception as e:  # noqa: BLE001
+                log.warning("refresh_shared_slots 失败：%s", e)
             for slot in get_router().all_slots():
                 if not slot.enabled:
                     continue

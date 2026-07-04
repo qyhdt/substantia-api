@@ -38,6 +38,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/substantia/claude:/var/lib/substantia/claude
+      # 共享账号池（与境核AI/小智同源）：同路径 bind，backend 才能 prep/校验兄弟容器要挂的凭据目录
+      - /home/work/workspaces/.claude-accounts:/home/work/workspaces/.claude-accounts
       - ./logs:/app/logs
     networks: [substantia_net]
     depends_on: [db, redis]
