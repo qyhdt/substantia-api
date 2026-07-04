@@ -37,26 +37,7 @@ export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => vo
         <div className="lp-trial">🎁 {t('free_trial_note')}</div>
       </header>
 
-      {/* 功能 */}
-      <section id="features" className="lp-section">
-        <h2>{t('features_title')}</h2>
-        <div className="lp-features">
-          {[
-            { i: '🔌', t: t('feat1_t'), d: t('feat1_d') },
-            { i: '⚡', t: t('feat2_t'), d: t('feat2_d') },
-            { i: '💳', t: t('feat3_t'), d: t('feat3_d') },
-            { i: '🔑', t: t('feat4_t'), d: t('feat4_d') },
-          ].map((f, i) => (
-            <div className="lp-feat" key={i}>
-              <div className="lp-feat-i">{f.i}</div>
-              <h3>{f.t}</h3>
-              <p>{f.d}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* 价格 */}
+      {/* 价格（放最前：用户一进来就能看到 5 折）*/}
       <section id="pricing" className="lp-section">
         <div className="lp-center" style={{ marginBottom: 10 }}>
           <span className="lp-badge">{t('pricing_badge')}</span>
@@ -91,6 +72,25 @@ export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => vo
           <p className="ak-muted" style={{ fontSize: 12, marginTop: 10 }}>{t('pricing_note')}</p>
           <button className="ak-btn primary lp-btn-lg" style={{ marginTop: 12 }}
             onClick={() => onAuth('register')}>{t('pricing_cta')}</button>
+        </div>
+      </section>
+
+      {/* 功能 */}
+      <section id="features" className="lp-section">
+        <h2>{t('features_title')}</h2>
+        <div className="lp-features">
+          {[
+            { i: '🔌', t: t('feat1_t'), d: t('feat1_d') },
+            { i: '⚡', t: t('feat2_t'), d: t('feat2_d') },
+            { i: '💳', t: t('feat3_t'), d: t('feat3_d') },
+            { i: '🔑', t: t('feat4_t'), d: t('feat4_d') },
+          ].map((f, i) => (
+            <div className="lp-feat" key={i}>
+              <div className="lp-feat-i">{f.i}</div>
+              <h3>{f.t}</h3>
+              <p>{f.d}</p>
+            </div>
+          ))}
         </div>
       </section>
 
