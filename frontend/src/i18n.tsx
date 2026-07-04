@@ -147,7 +147,7 @@ const DICT = {
     claudecli_note_2: ' 即可（可选，不设则用账号默认）。也可写进 ~/.zshrc 长期生效。',
     claudecli_warn_1: '不生效？如果 export 之后仍连到旧地址，多半是 ',
     claudecli_warn_2: ' 里的 ',
-    claudecli_warn_3: ' 字段在覆盖 shell 环境变量（它的优先级更高，用过其他中转站的机器上很常见）。请删除该文件中的 ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN，或把它们改成上面的值。',
+    claudecli_warn_3: ' 字段在覆盖 shell 环境变量（它的优先级更高，用过其他中转站的机器上很常见）。无需改文件，直接用下面的命令启动即可——命令行参数会覆盖 settings.json：',
 
     // 选择 key 弹窗
     pick_title: '选择一个 Key 生成 {title} curl',
@@ -327,7 +327,7 @@ const DICT = {
     claudecli_note_2: ' (optional — falls back to the account default). Add it to ~/.zshrc to persist.',
     claudecli_warn_1: 'Not working? If the CLI still hits an old endpoint after export, the ',
     claudecli_warn_2: ' file’s ',
-    claudecli_warn_3: ' field is probably overriding your shell env vars (it takes precedence — common on machines that used another relay before). Remove ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN from that file, or update them to the values above.',
+    claudecli_warn_3: ' field is probably overriding your shell env vars (it takes precedence — common on machines that used another relay before). No need to edit the file — launch with the command below; CLI flags override settings.json:',
 
     // pick key modal
     pick_title: 'Pick a key to generate {title} curl',

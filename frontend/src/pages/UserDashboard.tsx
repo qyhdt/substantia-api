@@ -43,6 +43,9 @@ const cliSnippet = (k: string, model: string) =>
 export ANTHROPIC_AUTH_TOKEN=${k}
 export ANTHROPIC_MODEL=${model}
 claude`
+// 排坑用：--settings 命令行参数优先级最高，可无视 ~/.claude/settings.json 里残留的旧网关配置
+const cliSettingsSnippet = (k: string, model: string) =>
+  `claude --settings '{"env":{"ANTHROPIC_BASE_URL":"${CLI_BASE_URL}","ANTHROPIC_AUTH_TOKEN":"${k}","ANTHROPIC_MODEL":"${model}"}}'`
 
 async function copyText(text: string) {
   try {
@@ -256,6 +259,10 @@ function Keys({ justIssued }: { justIssued?: string }) {
         <p className="ak-muted" style={{ fontSize: 12, marginTop: 4 }}>
           {t('claudecli_warn_1')}<span className="ak-mono">~/.claude/settings.json</span>{t('claudecli_warn_2')}<span className="ak-mono">env</span>{t('claudecli_warn_3')}
         </p>
+        <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: '6px 0 0', fontSize: 12 }}>{cliSettingsSnippet(banner || '<你的 sk-key>', model.id)}</pre>
+        <div className="ak-row" style={{ gap: 8, marginTop: 6 }}>
+          <CopyBtn text={cliSettingsSnippet(banner || '<你的 sk-key>', model.id)} />
+        </div>
       </Card>
 
       {pick && (
