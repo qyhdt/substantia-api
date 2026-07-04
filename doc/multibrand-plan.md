@@ -181,3 +181,26 @@ substantia-ai / substantia-api （唯一代码源）
 5. 停用 yaya-* 容器 + yaya-api-db；归档 prod-ai/prod-api
 
 **注意**：force-dynamic 使 [lang] 路由改为按请求渲染（品牌按域名必需，牺牲静态缓存，符合"一套部署双域名"）。
+
+---
+
+## ✅✅ 已完成上线（全部验证通过）
+
+一套代码（substantia-ai/substantia-api）按域名切品牌，已上线并运行时验证：
+
+- **前端**（substantia-ai #29）：`BRANDS`+`getBrand(host)`+`site-server`；metadata/Nav/Footer/JSON-LD/版权按域名。next build 绿，已部署。
+- **后端**（substantia-api #8）：`config/brands.py`+Host 中间件；`generate_key` 用品牌前缀（yayaok→sk-yaya-，校验走哈希兼容两种）；邮件主题/署名按品牌。已部署。
+- **nginx 切流**：yaya server 块的 `set $yaya_* <容器>` 改指 substantia 容器（`substantia-web`/`substantia-backend`/`substantia-api-backend`/`substantia-api-web`）。**注意：改后需 `docker restart edge-nginx` 才生效，`nginx -s reload` 不重新解析变量**。备份在 `nginx.conf.bak.multibrand`。
+- **决定性验证**：停掉全部 `yaya-*` 容器后，yayaok.com 仍 200 且出「丫丫/Yaya AI」，api.yayaok.com 仍 `{"status":"ok"}` → 确认真正跑在 substantia 栈上。substantia.ai 仍出「境核智能」无回归。
+- **清理**：`yaya-*` 容器 + `yaya-api-db` 已 `docker stop`（未删，可回滚）；`prod-ai`/`prod-api` 仓库已 GitHub archive。
+
+### ⚠️ 数据后果（按用户决定）
+用户选「保留 substantia 库、yaya-api-db 弃用」。故 **yaya 原有的用户/API key（在 yaya-api-db）不再生效**——api.yayaok.com 现在校验 substantia 库。若 yaya 曾有真实付费 key 用户，需重新签发。
+
+### 回滚（如需）
+1. `docker start yaya-web yaya-backend yaya-api-web yaya-api-backend yaya-postgres yaya-redis yaya-api-db yaya-api-redis`
+2. `sudo cp /home/work/new-api/devops/edge-proxy/nginx.conf.bak.multibrand /home/work/new-api/devops/edge-proxy/nginx.conf`
+3. `docker restart edge-nginx`
+
+### 遗留（非阻塞，可后续）
+- 子页 SEO metaDesc 里仍含默认品牌名「境核智能」（`lib/dictionaries/*.ts`）——首页/logo/标题/版权已品牌化，子页 SEO 描述为次要项，后续可加 brandize 批处理。
