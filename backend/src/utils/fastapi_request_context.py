@@ -102,6 +102,10 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         client_ip = _client_ip(request)
         extras = _read_extras(request)
 
+        # 多品牌：按请求域名解析品牌（yayaok→yaya，其余→substantia），供 key 生成/邮件读取
+        from config.brands import brand_key_from_host
+        brand_key = brand_key_from_host(request.headers.get("host"))
+
         token = request_context.set({
             "request_id": request_id,
             "trace_id": trace_id,
@@ -113,6 +117,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             "session_id": session_id,
             "params": params,
             "extras": extras,
+            "brand": brand_key,
         })
 
         try:

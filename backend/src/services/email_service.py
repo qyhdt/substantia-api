@@ -43,8 +43,11 @@ def _norm(email: str) -> str:
 
 def _send_smtp_sync(to_email: str, code: str) -> None:
     """同步发信（在线程里调用）。失败抛异常。"""
+    from config.brands import current_brand
+    b = current_brand()
     sender = settings.SMTP_FROM or settings.SMTP_USER
-    subject = "Substantia verification code"
+    subject = b.get("email_subject") or "Substantia verification code"
+    from_name = settings.SMTP_FROM_NAME or b.get("name") or "Substantia"
     body = (
         f"Your verification code is: {code}\n\n"
         f"It is valid for {settings.EMAIL_CODE_TTL // 60} minutes. Do not share it.\n"
@@ -52,7 +55,7 @@ def _send_smtp_sync(to_email: str, code: str) -> None:
     )
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = Header(subject, "utf-8")
-    msg["From"] = formataddr((str(Header(settings.SMTP_FROM_NAME, "utf-8")), sender))
+    msg["From"] = formataddr((str(Header(from_name, "utf-8")), sender))
     msg["To"] = to_email
 
     port = int(settings.SMTP_PORT or 587)
