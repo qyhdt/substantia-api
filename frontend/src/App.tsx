@@ -7,10 +7,12 @@ import { Landing } from './pages/Landing'
 import { Login } from './pages/Login'
 import { UserDashboard } from './pages/UserDashboard'
 import { AdminDashboard } from './pages/AdminDashboard'
+import { readParam, pushParams, hrefFor } from './nav'
 
 type User = {
   id: number; email: string; role: string; balance_micro_usd?: number
   trial_active?: boolean; trial_permanent?: boolean; trial_expires_at?: string; trial_usd?: string
+  must_change_password?: boolean
 }
 
 export default function App() {
@@ -18,7 +20,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null)
   const [booting, setBooting] = useState(true)
   const [firstKey, setFirstKey] = useState<string | undefined>()
-  const [view, setView] = useState<'user' | 'admin'>('user')
+  const [view, setView] = useState<'user' | 'admin'>(() => readParam('view', ['user', 'admin'], 'user') as 'user' | 'admin')
   // 未登录时的页面：先看落地页，点登录/注册再进表单
   const [authView, setAuthView] = useState<'landing' | 'auth'>('landing')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
@@ -48,6 +50,17 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
+  // 顶部「控制台/Admin」切换：同步到 ?view=，让强制刷新留在本视图；支持浏览器前进/后退。
+  function goView(v: 'user' | 'admin') {
+    setView(v)
+    pushParams({ view: v })
+  }
+  useEffect(() => {
+    const onPop = () => setView(readParam('view', ['user', 'admin'], 'user') as 'user' | 'admin')
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
   async function logout() {
     await auth.logout().catch(() => {})
     localStorage.removeItem('sa_session')
@@ -71,6 +84,11 @@ export default function App() {
     )
   }
 
+  // 首次登录（默认密码）强制改密：不改不让进
+  if (user.must_change_password) {
+    return <ForceChangePassword onDone={async () => { const me = await portal.me(); setUser(me) }} onLogout={logout} />
+  }
+
   const isAdmin = user.role === 'admin'
   return (
     <div className="ak-app">
@@ -79,8 +97,10 @@ export default function App() {
         <div className="ak-userbox">
           {isAdmin && (
             <div className="ak-tabs" style={{ margin: 0 }}>
-              <div className={`ak-tab ${view === 'user' ? 'active' : ''}`} onClick={() => setView('user')}>{t('console')}</div>
-              <div className={`ak-tab ${view === 'admin' ? 'active' : ''}`} onClick={() => setView('admin')}>Admin</div>
+              <a className={`ak-tab ${view === 'user' ? 'active' : ''}`} href={hrefFor({ view: 'user' })}
+                onClick={(e) => { e.preventDefault(); goView('user') }}>{t('console')}</a>
+              <a className={`ak-tab ${view === 'admin' ? 'active' : ''}`} href={hrefFor({ view: 'admin' })}
+                onClick={(e) => { e.preventDefault(); goView('admin') }}>Admin</a>
             </div>
           )}
           <span className="ak-balance">{fmtUsd(user.balance_micro_usd)}</span>
@@ -99,6 +119,58 @@ export default function App() {
       )}
 
       {view === 'admin' && isAdmin ? <AdminDashboard /> : <UserDashboard newKey={firstKey} />}
+    </div>
+  )
+}
+
+// ForceChangePassword 首次登录（默认密码）强制改密门，不改不放行。
+function ForceChangePassword({ onDone, onLogout }: { onDone: () => void; onLogout: () => void }) {
+  const { t } = useI18n()
+  const [oldPw, setOldPw] = useState('123456')
+  const [newPw, setNewPw] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  async function submit() {
+    setErr(null)
+    if (newPw.length < 6) { setErr(t('chpw_new')); return }
+    if (newPw !== confirm) { setErr(t('chpw_mismatch')); return }
+    setBusy(true)
+    try {
+      await portal.changePassword(oldPw, newPw)
+      onDone()
+    } catch (e: any) { setErr(t('chpw_fail') + (e?.message || e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="ak-app">
+      <div className="ak-top">
+        <div className="ak-brand">{BRAND.name} <span>{t('brand_tag')}</span></div>
+        <div className="ak-userbox"><LangToggle /><button className="ak-btn" onClick={onLogout}>{t('logout')}</button></div>
+      </div>
+      <div className="ak-card" style={{ maxWidth: 420, margin: '40px auto', padding: 24 }}>
+        <h2 style={{ marginTop: 0 }}>{t('chpw_title')}</h2>
+        <p className="ak-muted" style={{ marginTop: 0 }}>{t('chpw_desc')}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="ak-muted" style={{ fontSize: 13 }}>{t('chpw_old')}</span>
+            <input className="ak-input" style={{ width: '100%' }} type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="ak-muted" style={{ fontSize: 13 }}>{t('chpw_new')}</span>
+            <input className="ak-input" style={{ width: '100%' }} type="password" autoComplete="new-password" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span className="ak-muted" style={{ fontSize: 13 }}>{t('chpw_confirm')}</span>
+            <input className="ak-input" style={{ width: '100%' }} type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          </label>
+        </div>
+        {err && <div className="ak-err" style={{ marginTop: 10 }}>{err}</div>}
+        <div style={{ marginTop: 16 }}>
+          <button className="ak-btn primary" style={{ width: '100%' }} disabled={busy || !newPw || !confirm} onClick={submit}>
+            {busy ? t('chpw_submitting') : t('chpw_submit')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

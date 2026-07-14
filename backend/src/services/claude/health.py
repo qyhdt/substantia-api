@@ -83,6 +83,12 @@ async def probe_loop() -> None:
                 if not slot.enabled:
                     continue
                 await asyncio.to_thread(probe_and_update, slot)
+                # db 源：探针顺带触发了 OAuth 续期，把刷新后的凭据写回 DB（内容有变才写）
+                try:
+                    from services.claude import db_source
+                    await asyncio.to_thread(db_source.sync_creds_to_db, slot)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("sync_creds_to_db 失败 slot=%s: %s", slot.id, e)
         except asyncio.CancelledError:
             raise
         except Exception as e:

@@ -11,6 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from config.settings import settings
 from security.admin import require_admin
 from services.apikey import keys as keys_svc
 from services.apikey import pricing as pricing_svc
@@ -21,6 +22,20 @@ from utils.pm_logger import get_app_logger
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 log = get_app_logger()
+
+
+async def _owner_guard(admin: dict, target_user_id: int) -> None:
+    """保护「所有者」账号：非所有者的 admin 不能管理所有者账号。
+    未配置 OWNER_EMAILS 时不启用；请求者本身是所有者则放行。命中则 403。
+    对应 Go handlers/admin_apikey.go 的 ownerGuard。"""
+    owners = {e.lower() for e in settings.owner_emails_list}
+    if not owners:
+        return
+    if (admin.get("email") or "").strip().lower() in owners:
+        return
+    u = await users_svc.get_user(target_user_id)
+    if u and (u.get("email") or "").strip().lower() in owners:
+        raise HTTPException(status_code=403, detail="not permitted on this account")
 
 
 # ============================== 充值审核 ==============================
@@ -46,13 +61,47 @@ class GrantIn(BaseModel):
     amount_usd: float = Field(description="可负数（扣减）")
 
 
+class CreateUserIn(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(default="", max_length=128)  # 空则用默认密码 123456
+    role: str = Field(default="user")
+    balance_usd: float = Field(default=0)
+
+
+class MultiplierIn(BaseModel):
+    multiplier: float = Field(ge=0, le=100, description="价格系数：实扣=模型价×系数")
+
+
 @router.get("/users", summary="用户列表")
-async def list_users():
-    return await users_svc.list_users()
+async def list_users(admin: dict = Depends(require_admin)):
+    out = await users_svc.list_users()
+    # 所有者账号对非所有者 admin 隐藏。
+    owners = {e.lower() for e in settings.owner_emails_list}
+    if owners and (admin.get("email") or "").strip().lower() not in owners:
+        out = [u for u in out if (u.get("email") or "").strip().lower() not in owners]
+    return out
+
+
+@router.post("/users", summary="后台新建用户（默认密码 123456，首登强制改密）")
+async def create_user(payload: CreateUserIn):
+    from services.apikey import to_micro
+    return await users_svc.create_user_by_admin(
+        payload.email, payload.password, payload.role, to_micro(payload.balance_usd)
+    )
+
+
+@router.post("/users/{user_id}/multiplier", summary="设置用户价格系数（实扣=模型价×系数）")
+async def set_multiplier(user_id: int, payload: MultiplierIn, admin: dict = Depends(require_admin)):
+    await _owner_guard(admin, user_id)
+    ok = await users_svc.set_price_multiplier(user_id, payload.multiplier)
+    if not ok:
+        raise HTTPException(status_code=404, detail="user not found")
+    return {"ok": True, "user_id": user_id, "multiplier": payload.multiplier}
 
 
 @router.get("/users/{user_id}/detail", summary="单用户详情：余额分桶 + 消费聚合 + 用量明细")
-async def user_detail(user_id: int):
+async def user_detail(user_id: int, admin: dict = Depends(require_admin)):
+    await _owner_guard(admin, user_id)
     detail = await users_svc.user_detail(user_id)
     if not detail:
         raise HTTPException(status_code=404, detail="user not found")
@@ -60,16 +109,18 @@ async def user_detail(user_id: int):
 
 
 @router.post("/users/{user_id}/grant", summary="手动调整用户余额")
-async def grant(user_id: int, payload: GrantIn):
+async def grant(user_id: int, payload: GrantIn, admin: dict = Depends(require_admin)):
     from services.apikey import to_micro
+    await _owner_guard(admin, user_id)
     new_bal = await users_svc.adjust_balance(user_id, to_micro(payload.amount_usd))
     return {"user_id": user_id, "balance_micro_usd": new_bal}
 
 
 @router.post("/users/{user_id}/role", summary="设角色 user|admin")
-async def set_role(user_id: int, role: str):
+async def set_role(user_id: int, role: str, admin: dict = Depends(require_admin)):
     if role not in ("user", "admin"):
         raise HTTPException(status_code=400, detail="role must be user|admin")
+    await _owner_guard(admin, user_id)
     ok = await users_svc.set_role(user_id, role)
     if not ok:
         raise HTTPException(status_code=404, detail="user not found")
@@ -77,9 +128,10 @@ async def set_role(user_id: int, role: str):
 
 
 @router.post("/users/{user_id}/status", summary="启用/禁用用户 active|disabled")
-async def set_user_status(user_id: int, status: str):
+async def set_user_status(user_id: int, status: str, admin: dict = Depends(require_admin)):
     if status not in ("active", "disabled"):
         raise HTTPException(status_code=400, detail="status must be active|disabled")
+    await _owner_guard(admin, user_id)
     ok = await users_svc.set_status(user_id, status)
     if not ok:
         raise HTTPException(status_code=404, detail="user not found")
@@ -96,8 +148,9 @@ class AdminCreateKeyIn(BaseModel):
 
 
 @router.post("/keys", summary="给指定用户签发 key")
-async def admin_issue_key(payload: AdminCreateKeyIn):
+async def admin_issue_key(payload: AdminCreateKeyIn, admin: dict = Depends(require_admin)):
     from services.apikey import to_micro
+    await _owner_guard(admin, payload.user_id)
     cap = to_micro(payload.quota_cap_usd) if payload.quota_cap_usd is not None else None
     issued = await keys_svc.issue_key(
         payload.user_id, name=payload.name, allowed_models=payload.allowed_models,

@@ -55,7 +55,9 @@ def assert_safe_id(value: str, field: str = "id") -> None:
 # ============================================================================
 def container_name_for_slot(slot_id: str) -> str:
     assert_safe_id(slot_id, "slot_id")
-    return f"claude-slot-{slot_id}"
+    # 容器名 = <prefix><slot_id>；前缀可用 CLAUDE_CONTAINER_PREFIX 改，多套栈同机避免撞名。
+    prefix = settings.CLAUDE_CONTAINER_PREFIX or "claude-slot-"
+    return f"{prefix}{slot_id}"
 
 
 def _workspace_root() -> Path:

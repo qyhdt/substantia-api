@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from config.version import APP_NAME
-from controller import admin_apikey, auth, claude, example, gateway, health, portal, webhooks
+from controller import admin_apikey, auth, claude, example, gateway, health, portal, uploads, webhooks
 from frame.base_api_route import BaseAPIRoute
 from frame.error_handler import register_exception_handlers
 from utils.fastapi_request_context import RequestContextMiddleware
@@ -33,6 +33,14 @@ setup_root_logging()
 async def lifespan(app: FastAPI):
     """应用启停钩子：在这里初始化外部连接（Redis/DB），退出时关闭。"""
     log.info("startup: app booting...")
+
+    # 上传目录（转账凭证）：容器挂载卷，启动时确保存在
+    try:
+        import os
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        log.info("startup: upload dir ready: %s", settings.UPLOAD_DIR)
+    except Exception as e:
+        log.warning("startup: upload dir mkdir failed: %s", e)
 
     # Postgres：配置了 DATABASE_URL 才跑 migrations（db/migrations/*.sql）
     if settings.DATABASE_URL:
@@ -139,6 +147,7 @@ app.include_router(claude.admin_router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(portal.router, prefix="/api")
 app.include_router(admin_apikey.router, prefix="/api")
+app.include_router(uploads.router, prefix="/api")   # /api/uploads/{name} 回读凭证
 app.include_router(gateway.router, prefix="/api")   # /api/v1/messages
 app.include_router(gateway.router)                  # /v1/messages（裸路径，给 SDK base_url 用）
 app.include_router(webhooks.router, prefix="/api")  # /api/webhooks/polar

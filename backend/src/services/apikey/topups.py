@@ -11,13 +11,15 @@ from fastapi import HTTPException, status
 from utils import db as db_util
 
 
-async def submit(user_id: int, requested_micro_usd: int, reason: Optional[str] = None) -> Dict[str, Any]:
+async def submit(user_id: int, requested_micro_usd: int, reason: Optional[str] = None,
+                 proof_url: Optional[str] = None) -> Dict[str, Any]:
     if requested_micro_usd <= 0:
         raise HTTPException(status_code=400, detail="requested amount must be > 0")
+    # proof_url 为转账凭证截图（可空）。
     row = await db_util.fetchrow(
-        "INSERT INTO ak_topup_requests (user_id, requested_micro_usd, reason) "
-        "VALUES ($1, $2, $3) RETURNING *",
-        user_id, int(requested_micro_usd), reason,
+        "INSERT INTO ak_topup_requests (user_id, requested_micro_usd, reason, proof_url) "
+        "VALUES ($1, $2, $3, $4) RETURNING *",
+        user_id, int(requested_micro_usd), reason, proof_url,
     )
     return dict(row)
 

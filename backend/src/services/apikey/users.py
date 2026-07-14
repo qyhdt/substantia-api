@@ -89,6 +89,60 @@ async def register(email: str, password: str, *, device_id: Optional[str] = None
     return {"user": user, "api_key_plain": issued["plain"], "api_key": issued["key"]}
 
 
+# admin 建用户的默认密码；用户首次登录须改密（must_change_password=true）。
+DEFAULT_USER_PASSWORD = "123456"
+
+
+async def create_user_by_admin(email: str, password: str, role: str, balance_micro: int) -> Dict[str, Any]:
+    """admin 后台新建用户：不发试用金、不做设备去重，可指定角色与初始余额，
+    并签发一把 default key（明文只此一次返回）。默认密码 123456，首次登录强制改密。"""
+    email = (email or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid email")
+    if not (password or "").strip():
+        password = DEFAULT_USER_PASSWORD
+    if len(password) < 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="password too short (min 6)")
+    if role != "admin":
+        role = "user"
+    if await get_by_email(email):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email already registered")
+    pwd_hash = hash_password(password)
+    if balance_micro < 0:
+        balance_micro = 0
+
+    async with db_util.transaction() as conn:
+        urow = await conn.fetchrow(
+            "INSERT INTO ak_users (email, password_hash, role, balance_micro_usd, "
+            "trial_micro_usd, trial_expires_at, must_change_password) "
+            "VALUES ($1, $2, $3, $4, 0, NULL, true) RETURNING *",
+            email, pwd_hash, role, int(balance_micro),
+        )
+        user = _public(dict(urow))
+        issued = await keys_svc.issue_key(user["id"], name="default", conn=conn)
+
+    log.info("ak_admin_create_user email=%s role=%s balance_micro=%s", email, role, balance_micro)
+    return {"user": user, "api_key_plain": issued["plain"], "api_key": issued["key"]}
+
+
+async def change_password(user_id: int, old_pw: str, new_pw: str) -> None:
+    """校验原密码后改新密码并清除 must_change_password。新密码须 ≥6 且与原密码不同。"""
+    if len(new_pw) < 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="new password too short (min 6)")
+    if new_pw == old_pw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="new password must differ from old")
+    row = await db_util.fetchrow("SELECT password_hash FROM ak_users WHERE id = $1", user_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+    if not verify_password(old_pw, row["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="old password incorrect")
+    new_hash = hash_password(new_pw)
+    await db_util.execute(
+        "UPDATE ak_users SET password_hash = $1, must_change_password = false WHERE id = $2",
+        new_hash, user_id,
+    )
+
+
 async def authenticate(email: str, password: str) -> Dict[str, Any]:
     """登录校验，成功返回脱敏 user。失败 401。"""
     row = await get_by_email(email)
@@ -115,7 +169,7 @@ async def list_users(limit: int = 200) -> List[Dict[str, Any]]:
     from services.apikey.balance import effective_balance, trial_active
 
     rows = await db_util.fetch(
-        "SELECT id, email, role, status, balance_micro_usd, "
+        "SELECT id, email, role, status, balance_micro_usd, price_multiplier, "
         "trial_micro_usd, trial_expires_at, trial_permanent, created_at "
         "FROM ak_users ORDER BY created_at DESC LIMIT $1",
         limit,
@@ -141,7 +195,7 @@ async def user_detail(user_id: int) -> Optional[Dict[str, Any]]:
     from services.apikey.balance import effective_balance, trial_active
 
     row = await db_util.fetchrow(
-        "SELECT id, email, role, status, balance_micro_usd, "
+        "SELECT id, email, role, status, balance_micro_usd, price_multiplier, "
         "trial_micro_usd, trial_expires_at, trial_permanent, created_at "
         "FROM ak_users WHERE id = $1",
         user_id,
@@ -179,3 +233,23 @@ async def set_role(user_id: int, role: str) -> bool:
 async def set_status(user_id: int, status_val: str) -> bool:
     res = await db_util.execute("UPDATE ak_users SET status = $1 WHERE id = $2", status_val, user_id)
     return res.endswith("1")
+
+
+async def set_price_multiplier(user_id: int, mult: float) -> bool:
+    """设置用户价格系数（计费 实扣 = 模型价 × 系数）。范围 [0, 100]。"""
+    if mult < 0 or mult > 100:
+        raise HTTPException(status_code=422, detail="系数需在 0~100 之间")
+    res = await db_util.execute(
+        "UPDATE ak_users SET price_multiplier = $1 WHERE id = $2", float(mult), user_id
+    )
+    return res.endswith("1")
+
+
+async def user_price_multiplier(user_id: int) -> float:
+    """取用户价格系数；缺失/异常回落 1.0。"""
+    row = await db_util.fetchrow("SELECT price_multiplier FROM ak_users WHERE id = $1", user_id)
+    if not row:
+        return 1.0
+    m = row["price_multiplier"]
+    m = float(m) if m is not None else 1.0
+    return m if m >= 0 else 1.0

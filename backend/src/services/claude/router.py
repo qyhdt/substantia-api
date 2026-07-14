@@ -14,10 +14,13 @@ argmax 即按 weight 比例分布；weight 相等时退化为均匀分布。
 from __future__ import annotations
 
 import hashlib
+import itertools
 import math
+import re
 import threading
 from typing import Dict, Iterable, List, Optional
 
+from config.settings import settings
 from services.claude.slots import Slot
 
 
@@ -38,6 +41,15 @@ def _score(user_id: str, slot: Slot) -> float:
     return -slot.weight / math.log(h)
 
 
+_NAT_RE = re.compile(r"(\d+)")
+
+
+def _natural_key(s: str):
+    """ID 自然序键：数字段按数值比（acc2 < acc10），其余按字面。
+    保证 ${prefix}-acc1、${prefix}-acc2…${prefix}-acc10 按人的直觉排队。"""
+    return [int(t) if t.isdigit() else t for t in _NAT_RE.split(s)]
+
+
 class SlotRouter:
     """slot 池 + HRW 路由。线程安全（健康态会被探针并发改）。"""
 
@@ -46,6 +58,8 @@ class SlotRouter:
         self._slots: Dict[str, Slot] = {}
         for s in slots or []:
             self._slots[s.id] = s
+        # round_robin 发号器：每请求取号定起点（线程安全，itertools.count 的 next 是原子的）
+        self._rr = itertools.count()
 
     # ---------- 池管理 ----------
     def upsert(self, slot: Slot) -> None:
@@ -84,8 +98,29 @@ class SlotRouter:
             return [s for s in self._slots.values() if s.is_routable(now)]
 
     def route(self, user_id: str, now: Optional[float] = None) -> Slot:
-        """返回该用户命中的 slot；无可路由 slot 抛 NoRoutableSlotError。"""
+        """按 CLAUDE_ROUTE_POLICY 选 slot；无可路由 slot 抛 NoRoutableSlotError。
+        - hash/hrw：加权 HRW，同一用户固定命中同一 slot（会话粘性）。
+        - round_robin（默认）：按请求轮询，全量 slot 按 ID 自然序排队，从发号器指向的位置起
+          向下找第一个可路由的（跳过禁用/不健康的），user_id 不参与选择。"""
+        policy = (settings.CLAUDE_ROUTE_POLICY or "").strip().lower()
+        if policy in ("hash", "hrw"):
+            return self._route_hash(user_id, now)
+        return self._route_round_robin(now)
+
+    def _route_hash(self, user_id: str, now: Optional[float] = None) -> Slot:
         cands = self.routable_slots(now)
         if not cands:
             raise NoRoutableSlotError("no routable slot (empty / all disabled / all in cooldown)")
         return max(cands, key=lambda s: _score(user_id, s))
+
+    def _route_round_robin(self, now: Optional[float] = None) -> Slot:
+        with self._lock:
+            ordered = sorted(self._slots.values(), key=lambda s: _natural_key(s.id))
+        if not ordered:
+            raise NoRoutableSlotError("no routable slot (empty / all disabled / all in cooldown)")
+        start = next(self._rr) % len(ordered)
+        for i in range(len(ordered)):
+            s = ordered[(start + i) % len(ordered)]
+            if s.is_routable(now):
+                return s
+        raise NoRoutableSlotError("no routable slot (empty / all disabled / all in cooldown)")

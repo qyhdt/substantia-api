@@ -95,6 +95,17 @@ class Settings(BaseSettings):
     CLAUDE_SHARED_ACCOUNTS_DIR: str = ""
     # 共享账号 slot 用的基础镜像（凭据由 creds_dir 挂载覆盖，镜像只需带 claude CLI）
     CLAUDE_SHARED_ACCOUNTS_IMAGE: str = ""
+    # slot 容器名前缀：容器名 = <prefix><slot_id>。多套栈同机时改前缀避免撞名。
+    CLAUDE_CONTAINER_PREFIX: str = "claude-slot-"
+    # 独立账号池目录（本栈自有，非共享）：每个 <dir>/<acc>/.credentials.json = 一个订阅 slot。
+    # 与 CLAUDE_SHARED_ACCOUNTS_DIR 类似但归本栈独占；后台交互式登录新增账号写这里。留空 = 不用。
+    CLAUDE_ACCOUNTS_DIR: str = ""
+    # slot 来源：dir=扫账号目录/slots.json；db=从 claude_slots 表按 CLAUDE_NODE_IP 分片加载。
+    CLAUDE_SLOTS_SOURCE: str = "dir"
+    # 路由策略：round_robin | hrw（会话粘性）。
+    CLAUDE_ROUTE_POLICY: str = "round_robin"
+    # 本节点出口 IP：db 模式下按此 IP 从 claude_slots 取本机负责的账号（账号绑定服务器出口 IP）。
+    CLAUDE_NODE_IP: str = ""
 
     # ---- 健康探针 / 保活 / 故障转移 ----
     # 启动是否拉起所有 enabled slot 容器 + 起健康探针
@@ -110,6 +121,13 @@ class Settings(BaseSettings):
     # 拥有 /api/admin/* 权限的用户邮箱白名单（逗号分隔的 CSV 字符串；空 = 没人能用）
     # 取列表请用 settings.admin_emails_list（List[str]）
     ADMIN_EMAILS: str = ""
+    # owner（超管）邮箱白名单：admin 之上一层，可做 admin 不能做的高危操作（如设倍率/删账号）。
+    # 取列表用 settings.owner_emails_list。owner 自动拥有 admin 权限。
+    OWNER_EMAILS: str = ""
+
+    # ---------- 文件上传（转账凭证等）----------
+    # 上传文件落盘目录；通过 /api/uploads/<file> 静态回读。
+    UPLOAD_DIR: str = "/var/lib/substantia/uploads"
 
     # ---------- 充值（Polar.sh，海外 MoR，收美元）----------
     # 复用 digital-platform 的 Polar 账号；值放 .env。留空 = 未接入，充值接口返回 503。
@@ -149,6 +167,10 @@ class Settings(BaseSettings):
     @property
     def admin_emails_list(self) -> List[str]:
         return self._csv_to_list(self.ADMIN_EMAILS)
+
+    @property
+    def owner_emails_list(self) -> List[str]:
+        return self._csv_to_list(self.OWNER_EMAILS)
 
     @property
     def cors_origins_list(self) -> List[str]:

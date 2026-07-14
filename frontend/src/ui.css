@@ -37,9 +37,33 @@ a:hover { text-decoration: underline; }
 .ak-tab {
   padding: 8px 14px; border-radius: 8px; cursor: pointer; color: var(--muted);
   background: transparent; border: 1px solid transparent;
+  text-decoration: none; display: inline-block;
 }
+a.ak-tab:hover, a.ak-side-item:hover { text-decoration: none; }
+.ak-side-item { text-decoration: none; display: block; }
 .ak-tab:hover { color: var(--text); }
 .ak-tab.active { background: var(--panel); color: var(--text); border-color: var(--border); }
+
+/* 左侧菜单 + 右侧内容（admin 与用户控制台共用） */
+.ak-sidelayout { display: flex; gap: 20px; align-items: flex-start; }
+.ak-sidebar {
+  flex: 0 0 180px; display: flex; flex-direction: column; gap: 4px;
+  position: sticky; top: 18px;
+}
+.ak-side-item {
+  padding: 10px 14px; border-radius: 8px; cursor: pointer; color: var(--muted);
+  background: transparent; border: 1px solid transparent; font-size: 14px;
+}
+.ak-side-item:hover { color: var(--text); background: var(--panel); }
+.ak-side-item.active {
+  background: var(--panel); color: var(--text); border-color: var(--border); font-weight: 600;
+}
+.ak-sidecontent { flex: 1 1 auto; min-width: 0; }
+.ak-sidecontent > .ak-card:last-child { margin-bottom: 0; }
+@media (max-width: 720px) {
+  .ak-sidelayout { flex-direction: column; }
+  .ak-sidebar { flex-direction: row; flex-wrap: wrap; flex-basis: auto; position: static; width: 100%; }
+}
 
 .ak-card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px;

@@ -26,6 +26,20 @@ export const api = {
   del: <T = any>(p: string) => req<T>('DELETE', p),
 }
 
+// 上传文件（multipart/form-data，字段名 file）。不设 Content-Type，让浏览器自带 boundary。
+async function uploadFile<T = any>(path: string, file: File): Promise<T> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch(`/api${path}`, { method: 'POST', credentials: 'include', body: fd })
+  const text = await res.text()
+  const data = text ? JSON.parse(text) : null
+  if (!res.ok) {
+    const msg = (data && (data.message || data.detail)) || res.statusText
+    throw { code: res.status, message: typeof msg === 'string' ? msg : JSON.stringify(msg), detail: data } as ApiError
+  }
+  return data as T
+}
+
 // ---------- 鉴权 ----------
 export type RegisterPayload = {
   email: string; password: string
@@ -47,6 +61,8 @@ export const auth = {
 // ---------- 用户端 ----------
 export const portal = {
   me: () => api.get('/portal/me'),
+  changePassword: (old_password: string, new_password: string) =>
+    api.post('/portal/change-password', { old_password, new_password }),
   keys: () => api.get('/portal/keys'),
   newKey: (name: string, allowed_models?: string[]) => api.post('/portal/keys', { name, allowed_models }),
   disableKey: (id: number) => api.post(`/portal/keys/${id}/disable`),
@@ -54,7 +70,10 @@ export const portal = {
   keyUsage: (id: number) => api.get(`/portal/keys/${id}/usage`),
   usage: (limit = 50, offset = 0) => api.get(`/portal/usage?limit=${limit}&offset=${offset}`),
   topups: () => api.get('/portal/topups'),
-  submitTopup: (amount_usd: number, reason?: string) => api.post('/portal/topups', { amount_usd, reason }),
+  submitTopup: (amount_usd: number, reason?: string, proof_url?: string) =>
+    api.post('/portal/topups', { amount_usd, reason, proof_url }),
+  // 上传转账凭证图片（multipart），返回 { url } 供 submitTopup 引用
+  uploadProof: (file: File) => uploadFile('/portal/uploads/proof', file),
   // 自助充值（Polar 信用卡 / 虎皮椒 微信·支付宝）
   rechargeEnabled: () => api.get('/portal/recharge/enabled'),
   recharge: (amount_usd: number) => api.post('/portal/recharge', { amount_usd }),
@@ -68,10 +87,13 @@ export const admin = {
   reviewTopup: (id: number, approve: boolean, note?: string) =>
     api.post(`/admin/topups/${id}/review`, { approve, note }),
   users: () => api.get('/admin/users'),
+  createUser: (payload: { email: string; password: string; role: string; balance_usd: number }) =>
+    api.post('/admin/users', payload),
   userDetail: (id: number) => api.get(`/admin/users/${id}/detail`),
   grant: (id: number, amount_usd: number) => api.post(`/admin/users/${id}/grant`, { amount_usd }),
   setRole: (id: number, role: string) => api.post(`/admin/users/${id}/role?role=${role}`),
   setUserStatus: (id: number, status: string) => api.post(`/admin/users/${id}/status?status=${status}`),
+  setMultiplier: (id: number, multiplier: number) => api.post(`/admin/users/${id}/multiplier`, { multiplier }),
   issueKey: (payload: any) => api.post('/admin/keys', payload),
   keyStatus: (id: number, status: string) => api.post(`/admin/keys/${id}/status?status=${status}`),
   prices: () => api.get('/admin/model-prices'),
@@ -80,9 +102,23 @@ export const admin = {
   // 上游 slot / 容器（容器团队接口）
   slots: () => api.get('/admin/claude/slots'),
   upsertSlot: (id: string, payload: any) => api.put(`/admin/claude/slots/${id}`, payload),
-  deleteSlot: (id: string) => api.del(`/admin/claude/slots/${id}`),
+  createSlot: (payload: { server_ip?: string; slot_id: string; type: string; weight: number; image?: string; creds_json: string }) =>
+    api.post('/admin/claude/slots', payload),
+  deleteSlot: (id: string, server_ip?: string) =>
+    api.del(`/admin/claude/slots/${id}${server_ip ? `?server_ip=${encodeURIComponent(server_ip)}` : ''}`),
+  setSlotEnabled: (id: string, server_ip: string, value: boolean) =>
+    api.post(`/admin/claude/slots/${id}/enabled?server_ip=${encodeURIComponent(server_ip)}&value=${value}`),
+  reassignSlot: (id: string, from: string, to: string) =>
+    api.post(`/admin/claude/slots/${id}/server?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   containers: () => api.get('/admin/claude/containers'),
   ensureContainers: () => api.post('/admin/claude/containers/ensure'),
+  // 交互式登录新增订阅账号（网页终端 ↔ 服务器 PTY）
+  loginStart: (account_id: string) => api.post('/admin/claude/login/start', { account_id }),
+  loginRead: (session_id: string, offset: number) =>
+    api.get(`/admin/claude/login/read?session_id=${session_id}&offset=${offset}`),
+  loginWrite: (session_id: string, data: string) => api.post('/admin/claude/login/write', { session_id, data }),
+  loginFinish: (session_id: string) => api.post('/admin/claude/login/finish', { session_id }),
+  loginCancel: (session_id: string) => api.post('/admin/claude/login/cancel', { session_id }),
 }
 
 export const fmtUsd = (micro: number | null | undefined) => `$${((micro || 0) / 1e6).toFixed(4)}`

@@ -4,7 +4,7 @@
 """
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from pydantic import BaseModel, Field
 
 from security.dependencies import current_user, require_access_token
@@ -34,6 +34,12 @@ class CreateKeyIn(BaseModel):
 class TopupIn(BaseModel):
     amount_usd: float = Field(gt=0, le=100000)
     reason: Optional[str] = Field(default=None, max_length=500)
+    proof_url: Optional[str] = Field(default=None, max_length=300)  # 转账凭证图片地址
+
+
+class ChangePasswordIn(BaseModel):
+    old_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 class RechargeIn(BaseModel):
@@ -104,7 +110,23 @@ async def my_topups(user: dict = Depends(current_user)):
 
 @router.post("/topups", summary="提交加额度/充值申请（admin 审核，备用）")
 async def submit_topup(payload: TopupIn, user: dict = Depends(current_user)):
-    return await topups_svc.submit(_uid(user), to_micro(payload.amount_usd), payload.reason)
+    return await topups_svc.submit(
+        _uid(user), to_micro(payload.amount_usd), payload.reason, proof_url=payload.proof_url
+    )
+
+
+@router.post("/change-password", summary="自助改密（首次登录强制改密也走这里）")
+async def change_password(payload: ChangePasswordIn, user: dict = Depends(current_user)):
+    await users_svc.change_password(_uid(user), payload.old_password, payload.new_password)
+    return {"ok": True}
+
+
+@router.post("/uploads/proof", summary="上传转账凭证图片，返回可回读的相对 URL")
+async def upload_proof(file: UploadFile = File(...), user: dict = Depends(current_user)):
+    from controller.uploads import save_proof
+    _uid(user)  # 确保有合法登录上下文
+    url = await save_proof(file)
+    return {"url": url}
 
 
 # ---------- 自助充值（Polar 信用卡 / 虎皮椒 微信·支付宝）----------

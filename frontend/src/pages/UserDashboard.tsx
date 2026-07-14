@@ -3,6 +3,7 @@ import { fmtUsd, portal } from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 import { useI18n, type TKey } from '../i18n'
 import { BRAND } from '../brand'
+import { readParam, pushParams, hrefFor } from '../nav'
 
 // 两种协议：Anthropic 兼容 + OpenAI 兼容。同一把 sk-key 通用。
 type Fmt = 'anthropic' | 'openai'
@@ -83,29 +84,40 @@ function ModelPicker({ model, onPick }: { model: ModelInfo; onPick: (m: ModelInf
   )
 }
 
-// 从 URL ?tab=topups 读初始标签页，让「去充值」类深链能直接落到充值页（默认 keys）
-function initialTab(): 'keys' | 'usage' | 'topups' {
-  const q = new URLSearchParams(window.location.search).get('tab')
-  return q === 'topups' || q === 'usage' ? q : 'keys'
-}
+const USER_TABS = ['keys', 'usage', 'topups'] as const
 
 export function UserDashboard({ newKey }: { newKey?: string }) {
   const { t } = useI18n()
-  const [tab, setTab] = useState<'keys' | 'usage' | 'topups'>(initialTab)
+  // 从 URL ?tab= 读初始标签页（「去充值」深链、强制刷新留在本页都靠它），默认 keys
+  const [tab, setTab] = useState<'keys' | 'usage' | 'topups'>(
+    () => readParam('tab', USER_TABS, 'keys') as 'keys' | 'usage' | 'topups')
   const tabLabel: Record<typeof tab, TKey> = { keys: 'tab_keys', usage: 'tab_usage', topups: 'tab_topups' }
+  useEffect(() => {
+    const onPop = () => setTab(readParam('tab', USER_TABS, 'keys') as 'keys' | 'usage' | 'topups')
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  function go(k: 'keys' | 'usage' | 'topups') {
+    setTab(k)
+    pushParams({ view: 'user', tab: k })
+  }
   return (
-    <>
-      <div className="ak-tabs">
-        {(['keys', 'usage', 'topups'] as const).map((k) => (
-          <div key={k} className={`ak-tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
+    <div className="ak-sidelayout">
+      <aside className="ak-sidebar">
+        {USER_TABS.map((k) => (
+          <a key={k} className={`ak-side-item ${tab === k ? 'active' : ''}`}
+            href={hrefFor({ view: 'user', tab: k })}
+            onClick={(e) => { e.preventDefault(); go(k) }}>
             {t(tabLabel[k])}
-          </div>
+          </a>
         ))}
-      </div>
-      {tab === 'keys' && <Keys justIssued={newKey} />}
-      {tab === 'usage' && <Usage />}
-      {tab === 'topups' && <Topups />}
-    </>
+      </aside>
+      <section className="ak-sidecontent">
+        {tab === 'keys' && <Keys justIssued={newKey} />}
+        {tab === 'usage' && <Usage />}
+        {tab === 'topups' && <Topups />}
+      </section>
+    </div>
   )
 }
 
@@ -117,10 +129,16 @@ function Keys({ justIssued }: { justIssued?: string }) {
   const [busy, setBusy] = useState(false)
   const [pick, setPick] = useState<any[] | null>(null)   // 多 key 时弹窗候选
   // 弹窗选中 key 后如何生成复制内容（curl / export / --settings 通用）
-  const [pickBuild, setPickBuild] = useState<{ build: (k: string) => string; title: string } | null>(null)
+  const [pickBuild, setPickBuild] = useState<{ build: (k: string) => string; title: string; btnKey: string } | null>(null)
   const [open, setOpen] = useState<Fmt | null>('anthropic') // 当前展开的协议示例
   const [hint, setHint] = useState<string | null>(null)
+  const [copiedBtn, setCopiedBtn] = useState<string | null>(null) // 哪个「一键复制」刚成功（按钮旁内联提示）
   const [model, setModel] = useState<ModelInfo>(MODELS[0])  // 示例展示用的模型
+
+  function flashCopied(btnKey: string) {
+    setCopiedBtn(btnKey)
+    setTimeout(() => setCopiedBtn((c) => (c === btnKey ? null : c)), 2000)
+  }
 
   async function create() {
     setBusy(true)
@@ -143,21 +161,32 @@ function Keys({ justIssued }: { justIssued?: string }) {
   }
 
   // 一键复制可直接运行的片段（curl / export / --settings）：自动填入真实 key。多个可用 key 时弹窗选。
-  async function copyWithKey(build: (k: string) => string, title: string) {
+  // btnKey 用于在对应按钮旁内联提示「复制成功」。
+  async function copyWithKey(build: (k: string) => string, title: string, btnKey: string) {
     const keys: any[] = (state.data as any[]) || []
     const usable = keys.filter((k) => k.key_plain && k.status === 'active')
     if (usable.length === 0) {
-      setHint(t('copy_curl_nokey'))
-      setTimeout(() => setHint(null), 4000)
+      // 没有可用 key → 确认后自动生成一个再复制
+      if (!window.confirm(t('copy_autokey_confirm'))) return
+      try {
+        const r = await portal.newKey(name || 'default')
+        const plain = r.api_key
+        setBanner(plain)
+        state.reload()
+        await copyText(build(plain))
+        flashCopied(btnKey)
+      } catch (err: any) {
+        setHint(t('copy_curl_nokey'))
+        setTimeout(() => setHint(null), 4000)
+      }
       return
     }
     if (usable.length === 1) {
       await copyText(build(usable[0].key_plain))
-      setHint(t('copy_curl_done').replace('{title}', title).replace('{name}', usable[0].name))
-      setTimeout(() => setHint(null), 2500)
+      flashCopied(btnKey)
       return
     }
-    setPickBuild({ build, title }); setPick(usable)  // 多个 → 弹窗选
+    setPickBuild({ build, title, btnKey }); setPick(usable)  // 多个 → 弹窗选
   }
 
   return (
@@ -195,7 +224,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
                   <p className="ak-muted" style={{ fontSize: 12, margin: '0 0 8px' }}>{t(e.noteKey)}</p>
                   <div className="ak-row" style={{ justifyContent: 'flex-end', gap: 8, marginBottom: 6 }}>
                     <CopyBtn text={e.curl('<你的 sk-key>', model.id)} label={t('copy_sample')} />
-                    <button className="ak-btn primary" onClick={() => copyWithKey((k) => e.curl(k, model.id), t(e.titleKey))}>{t('copy_real_key')}</button>
+                    <button className="ak-btn primary" onClick={() => copyWithKey((k) => e.curl(k, model.id), t(e.titleKey), fmt)}>{t('copy_real_key')}</button>
+                    {copiedBtn === fmt && <span className="ak-ok" style={{ fontSize: 13, alignSelf: 'center' }}>✓ {t('copy_success')}</span>}
                   </div>
                   <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{sample}</pre>
                 </div>
@@ -203,6 +233,37 @@ function Keys({ justIssued }: { justIssued?: string }) {
             </div>
           )
         })}
+      </Card>
+
+      <Card title={t('card_keylist')}>
+        <Async state={state}>{(keys: any[]) => (
+          <table className="ak-table">
+            <thead><tr><th>{t('col_name')}</th><th>{t('col_prefix')}</th><th>{t('col_status')}</th><th>{t('col_spent')}</th><th>{t('col_cap')}</th><th>{t('col_created')}</th><th></th></tr></thead>
+            <tbody>
+              {keys.map((k) => (
+                <tr key={k.id}>
+                  <td>{k.name}</td>
+                  <td className="ak-mono">{k.key_prefix}</td>
+                  <td><Pill kind={k.status === 'active' ? 'ok' : 'bad'}>{k.status}</Pill></td>
+                  <td>{fmtUsd(k.spent_micro_usd)}</td>
+                  <td>{k.quota_cap_micro_usd == null ? '—' : fmtUsd(k.quota_cap_micro_usd)}</td>
+                  <td className="ak-muted">{new Date(k.created_at).toLocaleDateString()}</td>
+                  <td>
+                    <div className="ak-row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                      {k.key_plain
+                        ? <CopyBtn text={k.key_plain} label={t('copy')} />
+                        : <button className="ak-btn" disabled title={t('copy_disabled_title')}>{t('copy')}</button>}
+                      {k.status === 'active' &&
+                        <button className="ak-btn" onClick={() => disable(k.id)}>{t('disable')}</button>}
+                      <button className="ak-btn danger" onClick={() => del(k.id)}>{t('delete')}</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {keys.length === 0 && <tr><td colSpan={7} className="ak-muted">{t('empty_keys')}</td></tr>}
+            </tbody>
+          </table>
+        )}</Async>
       </Card>
 
       <Card title={t('card_cursor')}>
@@ -245,7 +306,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
         <ModelPicker model={model} onPick={setModel} />
         <div className="ak-row" style={{ justifyContent: 'flex-end', gap: 8, marginBottom: 6 }}>
           <CopyBtn text={cliSnippet('<你的 sk-key>', model.id)} label={t('copy_sample')} />
-          <button className="ak-btn primary" onClick={() => copyWithKey((k) => cliSnippet(k, model.id), 'Claude Code')}>{t('copy_real_key')}</button>
+          <button className="ak-btn primary" onClick={() => copyWithKey((k) => cliSnippet(k, model.id), 'Claude Code', 'cli')}>{t('copy_real_key')}</button>
+          {copiedBtn === 'cli' && <span className="ak-ok" style={{ fontSize: 13, alignSelf: 'center' }}>✓ {t('copy_success')}</span>}
         </div>
         <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{banner ? cliSnippet(banner, model.id) : cliSnippet('<你的 sk-key>', model.id)}</pre>
         <p className="ak-muted" style={{ fontSize: 12, marginTop: 8 }}>
@@ -257,7 +319,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
         <pre className="ak-mono" style={{ whiteSpace: 'pre-wrap', margin: '6px 0 0', fontSize: 12 }}>{cliSettingsSnippet(banner || '<你的 sk-key>', model.id)}</pre>
         <div className="ak-row" style={{ gap: 8, marginTop: 6 }}>
           <CopyBtn text={cliSettingsSnippet('<你的 sk-key>', model.id)} label={t('copy_sample')} />
-          <button className="ak-btn primary" onClick={() => copyWithKey((k) => cliSettingsSnippet(k, model.id), 'Claude Code --settings')}>{t('copy_real_key')}</button>
+          <button className="ak-btn primary" onClick={() => copyWithKey((k) => cliSettingsSnippet(k, model.id), 'Claude Code --settings', 'cli-settings')}>{t('copy_real_key')}</button>
+          {copiedBtn === 'cli-settings' && <span className="ak-ok" style={{ fontSize: 13, alignSelf: 'center' }}>✓ {t('copy_success')}</span>}
         </div>
       </Card>
 
@@ -269,9 +332,9 @@ function Keys({ justIssued }: { justIssued?: string }) {
               <button key={k.id} className="ak-btn" style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 8 }}
                 onClick={async () => {
                   await copyText(pickBuild.build(k.key_plain))
+                  const bk = pickBuild.btnKey
                   setPick(null)
-                  setHint(t('copy_curl_done').replace('{title}', pickBuild.title).replace('{name}', k.name))
-                  setTimeout(() => setHint(null), 2500)
+                  flashCopied(bk)
                 }}>
                 {k.name} · <span className="ak-mono">{k.key_prefix}</span>
               </button>
@@ -281,36 +344,6 @@ function Keys({ justIssued }: { justIssued?: string }) {
         </div>
       )}
 
-      <Card title={t('card_keylist')}>
-        <Async state={state}>{(keys: any[]) => (
-          <table className="ak-table">
-            <thead><tr><th>{t('col_name')}</th><th>{t('col_prefix')}</th><th>{t('col_status')}</th><th>{t('col_spent')}</th><th>{t('col_cap')}</th><th>{t('col_created')}</th><th></th></tr></thead>
-            <tbody>
-              {keys.map((k) => (
-                <tr key={k.id}>
-                  <td>{k.name}</td>
-                  <td className="ak-mono">{k.key_prefix}</td>
-                  <td><Pill kind={k.status === 'active' ? 'ok' : 'bad'}>{k.status}</Pill></td>
-                  <td>{fmtUsd(k.spent_micro_usd)}</td>
-                  <td>{k.quota_cap_micro_usd == null ? '—' : fmtUsd(k.quota_cap_micro_usd)}</td>
-                  <td className="ak-muted">{new Date(k.created_at).toLocaleDateString()}</td>
-                  <td>
-                    <div className="ak-row" style={{ gap: 6, justifyContent: 'flex-end' }}>
-                      {k.key_plain
-                        ? <CopyBtn text={k.key_plain} label={t('copy')} />
-                        : <button className="ak-btn" disabled title={t('copy_disabled_title')}>{t('copy')}</button>}
-                      {k.status === 'active' &&
-                        <button className="ak-btn" onClick={() => disable(k.id)}>{t('disable')}</button>}
-                      <button className="ak-btn danger" onClick={() => del(k.id)}>{t('delete')}</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {keys.length === 0 && <tr><td colSpan={7} className="ak-muted">{t('empty_keys')}</td></tr>}
-            </tbody>
-          </table>
-        )}</Async>
-      </Card>
     </>
   )
 }
@@ -455,6 +488,104 @@ function Topups() {
           <Pager total={data.total || 0} page={page} pageSize={pageSize}
             onPage={setPage} onPageSize={(s) => { setPageSize(s); setPage(1) }} />
         </>)}</Async>
+      </Card>
+      <ManualTopup />
+    </>
+  )
+}
+
+// 人工充值申请：线下转账后填金额 + 上传凭证 → 提交，等 admin 审核。下方列出自己的申请记录。
+function ManualTopup() {
+  const { t } = useI18n()
+  const list = useAsync(() => portal.topups(), [])
+  const [amount, setAmount] = useState(20)
+  const [reason, setReason] = useState('')
+  const [proofUrl, setProofUrl] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function onPick(f?: File) {
+    if (!f) return
+    setUploading(true); setErr(null)
+    try {
+      const r = await portal.uploadProof(f)
+      setProofUrl(r.url)
+    } catch (e: any) {
+      setErr(e?.message || t('failed'))
+    } finally {
+      setUploading(false)
+    }
+  }
+  async function submit() {
+    if (amount <= 0) return
+    setBusy(true); setMsg(null); setErr(null)
+    try {
+      await portal.submitTopup(amount, reason || undefined, proofUrl || undefined)
+      setMsg(t('topup_submitted')); setReason(''); setProofUrl(null)
+      list.reload()
+    } catch (e: any) {
+      setErr(e?.message || t('failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const statusLabel = (s: string) =>
+    s === 'approved' ? t('topup_status_approved') : s === 'rejected' ? t('topup_status_rejected') : t('topup_status_pending')
+
+  return (
+    <>
+      <Card title={t('card_manual_topup')}>
+        <p className="ak-muted">{t('manual_topup_desc')}</p>
+        <div className="ak-row" style={{ alignItems: 'center' }}>
+          <span className="ak-muted">{t('label_amount_usd')}</span>
+          <input className="ak-input" type="number" min={1} value={amount}
+            onChange={(e) => setAmount(Number(e.target.value))} style={{ width: 120 }} />
+        </div>
+        <textarea className="ak-input" placeholder={t('manual_reason_ph')} value={reason}
+          onChange={(e) => setReason(e.target.value)} rows={2}
+          style={{ width: '100%', marginTop: 10, resize: 'vertical' }} />
+        <div className="ak-row" style={{ marginTop: 10, alignItems: 'center' }}>
+          <label className="ak-btn" style={{ cursor: 'pointer' }}>
+            {uploading ? t('proof_uploading') : t('proof_choose')}
+            <input type="file" accept="image/*" hidden disabled={uploading}
+              onChange={(e) => onPick(e.target.files?.[0])} />
+          </label>
+          {proofUrl && <span className="ak-ok" style={{ fontSize: 12 }}>{t('proof_uploaded')}</span>}
+          <button className="ak-btn primary" disabled={busy || uploading} onClick={submit}>
+            {busy ? t('submitting') : t('submit_topup')}
+          </button>
+        </div>
+        {proofUrl && (
+          <img src={proofUrl} alt="proof"
+            style={{ maxHeight: 120, marginTop: 10, borderRadius: 8, border: '1px solid var(--border)' }} />
+        )}
+        <div className="ak-muted" style={{ marginTop: 8, fontSize: 12 }}>{t('proof_optional')}</div>
+        {msg && <div className="ak-ok" style={{ marginTop: 8 }}>{msg}</div>}
+        {err && <div className="ak-err" style={{ marginTop: 8 }}>{err}</div>}
+      </Card>
+
+      <Card title={t('card_my_topups')}>
+        <Async state={list}>{(rows: any[]) => (
+          <table className="ak-table">
+            <thead><tr><th>{t('col_time')}</th><th>{t('col_amount')}</th><th>{t('col_reason')}</th><th>{t('col_proof')}</th><th>{t('col_status')}</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
+                  <td>{fmtUsd(r.requested_micro_usd)}</td>
+                  <td className="ak-muted">{r.reason || '—'}</td>
+                  <td>{r.proof_url
+                    ? <a className="ak-link" href={r.proof_url} target="_blank" rel="noreferrer">{t('view_proof')}</a>
+                    : '—'}</td>
+                  <td><Pill kind={r.status === 'approved' ? 'ok' : r.status === 'rejected' ? 'bad' : 'warn'}>{statusLabel(r.status)}</Pill></td>
+                </tr>
+              ))}
+              {rows.length === 0 && <tr><td colSpan={5} className="ak-muted">{t('empty_my_topups')}</td></tr>}
+            </tbody>
+          </table>
+        )}</Async>
       </Card>
     </>
   )

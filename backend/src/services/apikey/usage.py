@@ -69,6 +69,15 @@ async def record_and_charge(
         model, prompt_tokens, completion_tokens,
         cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
     )
+    # 应用用户价格系数：实扣 = 模型价 × 系数（1.0=原价 / 0.5=五折 / 1.3=上浮）。
+    # round() 为 round-half-to-even，与 Go pyRound 一致。
+    if cost > 0:
+        from services.apikey.users import user_price_multiplier
+        mult = await user_price_multiplier(user_id)
+        if mult != 1.0:
+            cost = round(cost * mult)
+            if cost < 0:
+                cost = 0
 
     async with db_util.transaction() as conn:
         if cost > 0:
