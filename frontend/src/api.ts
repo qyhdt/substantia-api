@@ -86,6 +86,8 @@ export const admin = {
   topups: (status?: string) => api.get(`/admin/topups${status ? `?status=${status}` : ''}`),
   reviewTopup: (id: number, approve: boolean, note?: string) =>
     api.post(`/admin/topups/${id}/review`, { approve, note }),
+  payments: (limit = 100, offset = 0, status?: string) =>
+    api.get(`/admin/payments?limit=${limit}&offset=${offset}${status ? `&status=${status}` : ''}`),
   users: () => api.get('/admin/users'),
   createUser: (payload: { email: string; password: string; role: string; balance_usd: number }) =>
     api.post('/admin/users', payload),

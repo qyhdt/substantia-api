@@ -218,6 +218,13 @@ const DICT = {
     // ===== Admin dashboard =====
     // 侧边菜单
     admin_tab_topups: '充值审核',
+    admin_tab_payments: '充值记录',
+    admin_payments_title: '充值订单（自助 Polar / 虎皮椒）',
+    admin_empty_payments: '暂无充值订单',
+    admin_col_provider: '渠道',
+    admin_col_rmb: '人民币',
+    admin_col_order: '订单号',
+    admin_col_paid: '支付时间',
     admin_tab_users: '用户',
     admin_tab_prices: '模型定价',
     admin_tab_slots: '上游凭据/容器',
@@ -575,6 +582,13 @@ const DICT = {
     // ===== Admin dashboard =====
     // sidebar menu
     admin_tab_topups: 'Top-up review',
+    admin_tab_payments: 'Payments',
+    admin_payments_title: 'Recharge orders (Polar / Xunhupay)',
+    admin_empty_payments: 'No recharge orders',
+    admin_col_provider: 'Channel',
+    admin_col_rmb: 'RMB',
+    admin_col_order: 'Order No',
+    admin_col_paid: 'Paid at',
     admin_tab_users: 'Users',
     admin_tab_prices: 'Model pricing',
     admin_tab_slots: 'Upstream creds / containers',

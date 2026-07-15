@@ -10,6 +10,7 @@ const fmtTime = (t?: string | null) => (t ? new Date(t).toLocaleString() : '—'
 
 const TABS = [
   ['topups', 'admin_tab_topups'],
+  ['payments', 'admin_tab_payments'],
   ['users', 'admin_tab_users'],
   ['prices', 'admin_tab_prices'],
   ['slots', 'admin_tab_slots'],
@@ -43,6 +44,7 @@ export function AdminDashboard() {
       </aside>
       <section className="ak-sidecontent">
         {tab === 'topups' && <Topups />}
+        {tab === 'payments' && <Payments />}
         {tab === 'users' && <Users />}
         {tab === 'prices' && <Prices />}
         {tab === 'slots' && <Slots />}
@@ -89,6 +91,44 @@ function Topups() {
           </tbody>
         </table>
       )}</Async>
+    </Card>
+  )
+}
+
+function Payments() {
+  const { t } = useI18n()
+  const state = useAsync(() => admin.payments(), [])
+  const provLabel = (p: string) => p === 'xunhupay' ? '虎皮椒' : p === 'polar' ? 'Polar' : (p || '—')
+  return (
+    <Card title={t('admin_payments_title')}>
+      <Async state={state}>{(data: any) => {
+        const rows: any[] = data?.items || []
+        return (
+          <table className="ak-table">
+            <thead><tr>
+              <th>{t('admin_col_time')}</th><th>{t('admin_col_user')}</th>
+              <th>{t('admin_col_provider')}</th><th>{t('admin_col_amount')}</th>
+              <th>{t('admin_col_rmb')}</th><th>{t('admin_col_order')}</th>
+              <th>{t('admin_col_status')}</th><th>{t('admin_col_paid')}</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="ak-muted">{fmtTime(r.created_at)}</td>
+                  <td>{r.user_email}</td>
+                  <td>{provLabel(r.provider)}</td>
+                  <td>{fmtUsd(r.amount_micro_usd)}</td>
+                  <td className="ak-muted">{r.amount_rmb != null ? `¥${Number(r.amount_rmb).toFixed(2)}` : '—'}</td>
+                  <td className="ak-mono ak-muted" style={{ fontSize: 12 }}>{r.out_trade_no}</td>
+                  <td><Pill kind={r.status === 'paid' ? 'ok' : 'warn'}>{r.status}</Pill></td>
+                  <td className="ak-muted">{fmtTime(r.paid_at)}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && <tr><td colSpan={8} className="ak-muted">{t('admin_empty_payments')}</td></tr>}
+            </tbody>
+          </table>
+        )
+      }}</Async>
     </Card>
   )
 }

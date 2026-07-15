@@ -204,3 +204,24 @@ async def list_for_user(user_id: int, limit: int = 50, offset: int = 0) -> dict:
         user_id, limit, offset,
     )
     return {"items": [dict(r) for r in rows], "total": int(total or 0)}
+
+
+async def list_all(limit: int = 50, offset: int = 0, status: str | None = None) -> dict:
+    """admin：全站充值订单（自助 Polar/虎皮椒），带用户邮箱。分页 {items, total}。
+    status 可选过滤（pending/paid）。金额是 micro-USD，虎皮椒另带 amount_rmb 对账列。"""
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    where = ""
+    args: list = []
+    if status:
+        args.append(status)
+        where = f"WHERE p.status = ${len(args)}"
+    total = await db_util.fetchval(f"SELECT count(*) FROM ak_payments p {where}", *args)
+    rows = await db_util.fetch(
+        "SELECT p.id, p.user_id, u.email AS user_email, p.provider, p.out_trade_no, "
+        "p.amount_micro_usd, p.amount_rmb, p.status, p.provider_ref, p.created_at, p.paid_at "
+        "FROM ak_payments p JOIN ak_users u ON u.id = p.user_id "
+        f"{where} ORDER BY p.created_at DESC LIMIT ${len(args)+1} OFFSET ${len(args)+2}",
+        *args, limit, offset,
+    )
+    return {"items": [dict(r) for r in rows], "total": int(total or 0)}

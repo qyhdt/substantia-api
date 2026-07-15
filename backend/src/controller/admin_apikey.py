@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from config.settings import settings
 from security.admin import require_admin
 from services.apikey import keys as keys_svc
+from services.apikey import payments as payments_svc
 from services.apikey import pricing as pricing_svc
 from services.apikey import topups as topups_svc
 from services.apikey import usage as usage_svc
@@ -47,6 +48,11 @@ class ReviewIn(BaseModel):
 @router.get("/topups", summary="充值申请列表")
 async def list_topups(status: Optional[str] = None):
     return await topups_svc.list_all(status)
+
+
+@router.get("/payments", summary="全站充值订单列表（自助 Polar/虎皮椒，带用户邮箱）")
+async def list_payments(limit: int = 50, offset: int = 0, status: Optional[str] = None):
+    return await payments_svc.list_all(limit=limit, offset=offset, status=status)
 
 
 @router.post("/topups/{topup_id}/review", summary="审核充值（批准即加余额）")
