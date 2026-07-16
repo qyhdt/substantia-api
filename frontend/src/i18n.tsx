@@ -74,7 +74,15 @@ const DICT = {
 
     // 控制台标签页
     tab_keys: '我的 Key',
+    tab_pricing: '价格',
     tab_usage: '用量明细',
+    card_prices: '模型价格',
+    prices_note: '按 token 精确计费，官网价 5 折；下方单位为 $ / 百万 token（缓存读约输入 10%，缓存写约 125%）。',
+    price_col_model: '模型',
+    price_col_in: '输入 / 百万',
+    price_col_out: '输出 / 百万',
+    price_col_cache_read: '缓存读 / 百万',
+    price_col_cache_write: '缓存写 / 百万',
     tab_topups: '充值',
 
     // 通用按钮 / 文案
@@ -439,7 +447,15 @@ const DICT = {
 
     // console tabs
     tab_keys: 'My Keys',
+    tab_pricing: 'Pricing',
     tab_usage: 'Usage',
+    card_prices: 'Model pricing',
+    prices_note: 'Billed precisely per token, 50% of official price. Unit below: $ / 1M tokens (cache read ≈ 10% of input, cache write ≈ 125%).',
+    price_col_model: 'Model',
+    price_col_in: 'Input / 1M',
+    price_col_out: 'Output / 1M',
+    price_col_cache_read: 'Cache read / 1M',
+    price_col_cache_write: 'Cache write / 1M',
     tab_topups: 'Top up',
 
     // common buttons / text

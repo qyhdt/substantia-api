@@ -63,6 +63,7 @@ export const portal = {
   me: () => api.get('/portal/me'),
   changePassword: (old_password: string, new_password: string) =>
     api.post('/portal/change-password', { old_password, new_password }),
+  prices: () => api.get('/portal/prices'),
   keys: () => api.get('/portal/keys'),
   newKey: (name: string, allowed_models?: string[]) => api.post('/portal/keys', { name, allowed_models }),
   disableKey: (id: number) => api.post(`/portal/keys/${id}/disable`),

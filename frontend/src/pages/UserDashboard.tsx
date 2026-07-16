@@ -84,20 +84,21 @@ function ModelPicker({ model, onPick }: { model: ModelInfo; onPick: (m: ModelInf
   )
 }
 
-const USER_TABS = ['keys', 'usage', 'topups'] as const
+const USER_TABS = ['keys', 'pricing', 'usage', 'topups'] as const
+type UTab = typeof USER_TABS[number]
 
 export function UserDashboard({ newKey }: { newKey?: string }) {
   const { t } = useI18n()
   // 从 URL ?tab= 读初始标签页（「去充值」深链、强制刷新留在本页都靠它），默认 keys
-  const [tab, setTab] = useState<'keys' | 'usage' | 'topups'>(
-    () => readParam('tab', USER_TABS, 'keys') as 'keys' | 'usage' | 'topups')
-  const tabLabel: Record<typeof tab, TKey> = { keys: 'tab_keys', usage: 'tab_usage', topups: 'tab_topups' }
+  const [tab, setTab] = useState<UTab>(
+    () => readParam('tab', USER_TABS, 'keys') as UTab)
+  const tabLabel: Record<UTab, TKey> = { keys: 'tab_keys', pricing: 'tab_pricing', usage: 'tab_usage', topups: 'tab_topups' }
   useEffect(() => {
-    const onPop = () => setTab(readParam('tab', USER_TABS, 'keys') as 'keys' | 'usage' | 'topups')
+    const onPop = () => setTab(readParam('tab', USER_TABS, 'keys') as UTab)
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
-  function go(k: 'keys' | 'usage' | 'topups') {
+  function go(k: UTab) {
     setTab(k)
     pushParams({ view: 'user', tab: k })
   }
@@ -114,6 +115,7 @@ export function UserDashboard({ newKey }: { newKey?: string }) {
       </aside>
       <section className="ak-sidecontent">
         {tab === 'keys' && <Keys justIssued={newKey} />}
+        {tab === 'pricing' && <Prices />}
         {tab === 'usage' && <Usage />}
         {tab === 'topups' && <Topups />}
       </section>
@@ -375,6 +377,44 @@ function Usage() {
         <Pager total={data.total || 0} page={page} pageSize={pageSize}
           onPage={setPage} onPageSize={(s) => { setPageSize(s); setPage(1) }} />
       </>)}</Async>
+    </Card>
+  )
+}
+
+function Prices() {
+  const { t } = useI18n()
+  const state = useAsync(() => portal.prices(), [])
+  // 库里存的是 micro-USD / 1k token；换算成 $ / 百万 token 展示：micro_per_1k / 1000。
+  const per1m = (v: any) => `$${(Number(v || 0) / 1000).toFixed(2)}`
+  return (
+    <Card title={t('card_prices')}>
+      <p className="ak-muted" style={{ marginTop: 0 }}>{t('prices_note')}</p>
+      <Async state={state}>{(rows: any[]) => (
+        <table className="ak-table">
+          <thead><tr>
+            <th>{t('price_col_model')}</th>
+            <th>{t('price_col_in')}</th>
+            <th>{t('price_col_out')}</th>
+            <th>{t('price_col_cache_read')}</th>
+            <th>{t('price_col_cache_write')}</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.model}>
+                <td>
+                  <b>{r.display_name || r.model}</b>
+                  <div className="ak-mono ak-muted" style={{ fontSize: 12 }}>{r.model}</div>
+                </td>
+                <td>{per1m(r.input_micro_usd_per_1k)}</td>
+                <td>{per1m(r.output_micro_usd_per_1k)}</td>
+                <td className="ak-muted">{per1m(r.cache_read_micro_usd_per_1k)}</td>
+                <td className="ak-muted">{per1m(r.cache_write_micro_usd_per_1k)}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={5} className="ak-muted">—</td></tr>}
+          </tbody>
+        </table>
+      )}</Async>
     </Card>
   )
 }

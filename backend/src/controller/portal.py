@@ -11,6 +11,7 @@ from security.dependencies import current_user, require_access_token
 from services.apikey import to_micro, usd
 from services.apikey import keys as keys_svc
 from services.apikey import payments as payments_svc
+from services.apikey import pricing as pricing_svc
 from services.apikey import topups as topups_svc
 from services.apikey import usage as usage_svc
 from services.apikey import users as users_svc
@@ -62,6 +63,13 @@ async def me(user: dict = Depends(current_user)):
         "trial_active": active,                     # 试用是否有效
         "trial_usd": usd(u.get("trial_micro_usd") or 0) if active else "$0.0000",
     }
+
+
+@router.get("/prices", summary="模型价格表（启用中的，供控制台随时查看）")
+async def my_prices():
+    """返回启用中的逐模型价格（micro-USD/1k token）。前端换算成 $/百万 token 展示。"""
+    rows = await pricing_svc.list_prices()
+    return [r for r in rows if r.get("enabled", True)]
 
 
 @router.get("/keys", summary="我的 key 列表（脱敏）")

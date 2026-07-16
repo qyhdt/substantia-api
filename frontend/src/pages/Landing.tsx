@@ -5,6 +5,7 @@ import { BRAND } from '../brand'
 const DISCOUNT = 0.5
 const PRICES = [
   { model: 'claude-opus-4-8', in: 5, out: 25 },
+  { model: 'claude-sonnet-5', in: 3, out: 15 },
   { model: 'claude-sonnet-4-6', in: 3, out: 15 },
   { model: 'claude-haiku-4-5', in: 1, out: 5 },
   { model: 'claude-fable-5', in: 10, out: 50 },
