@@ -14,6 +14,7 @@ const DICT = {
     register: '注册',
     logout: '退出',
     console: '控制台',
+    view_home: '查看首页',
     get_started: '免费开始',
     free_trial_note: '注册即送 $20 试用额度',
 
@@ -382,6 +383,7 @@ const DICT = {
     register: 'Sign up',
     logout: 'Log out',
     console: 'Console',
+    view_home: 'Home',
     get_started: 'Get started free',
     free_trial_note: 'Sign up and get $20 free credit',
 

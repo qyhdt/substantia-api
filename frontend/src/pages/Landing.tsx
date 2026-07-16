@@ -11,19 +11,29 @@ const PRICES = [
 ]
 const usd = (n: number) => `$${n.toFixed(2)}`
 
-export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => void }) {
+export function Landing(
+  { onAuth, loggedIn, onEnter }:
+  { onAuth: (mode: 'login' | 'register') => void; loggedIn?: boolean; onEnter?: () => void }
+) {
   const { t } = useI18n()
   return (
     <div className="lp">
       {/* 顶栏 */}
       <nav className="lp-nav">
-        <div className="lp-brand">{BRAND.name} <span>{t('brand_tag')}</span></div>
+        <div className="lp-brand" style={loggedIn ? { cursor: 'pointer' } : undefined}
+          onClick={loggedIn ? onEnter : undefined}>{BRAND.name} <span>{t('brand_tag')}</span></div>
         <div className="lp-nav-links">
           <a href="#features">{t('nav_features')}</a>
           <a href="#pricing">{t('nav_pricing')}</a>
           <LangToggle />
-          <button className="ak-btn" onClick={() => onAuth('login')}>{t('login')}</button>
-          <button className="ak-btn primary" onClick={() => onAuth('register')}>{t('get_started')}</button>
+          {loggedIn ? (
+            <button className="ak-btn primary" onClick={onEnter}>{t('console')}</button>
+          ) : (
+            <>
+              <button className="ak-btn" onClick={() => onAuth('login')}>{t('login')}</button>
+              <button className="ak-btn primary" onClick={() => onAuth('register')}>{t('get_started')}</button>
+            </>
+          )}
         </div>
       </nav>
 
@@ -32,10 +42,14 @@ export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => vo
         <h1>{t('hero_title')}</h1>
         <p>{t('hero_sub')}</p>
         <div className="lp-hero-cta">
-          <button className="ak-btn primary lp-btn-lg" onClick={() => onAuth('register')}>{t('hero_cta1')}</button>
+          {loggedIn ? (
+            <button className="ak-btn primary lp-btn-lg" onClick={onEnter}>{t('console')}</button>
+          ) : (
+            <button className="ak-btn primary lp-btn-lg" onClick={() => onAuth('register')}>{t('hero_cta1')}</button>
+          )}
           <a className="ak-btn lp-btn-lg" href="#pricing">{t('hero_cta2')}</a>
         </div>
-        <div className="lp-trial">🎁 {t('free_trial_note')}</div>
+        {!loggedIn && <div className="lp-trial">🎁 {t('free_trial_note')}</div>}
       </header>
 
       {/* 价格（放最前：用户一进来就能看到 5 折）*/}
@@ -72,7 +86,7 @@ export function Landing({ onAuth }: { onAuth: (mode: 'login' | 'register') => vo
           </table>
           <p className="ak-muted" style={{ fontSize: 12, marginTop: 10 }}>{t('pricing_note')}</p>
           <button className="ak-btn primary lp-btn-lg" style={{ marginTop: 12 }}
-            onClick={() => onAuth('register')}>{t('pricing_cta')}</button>
+            onClick={loggedIn ? onEnter : () => onAuth('register')}>{loggedIn ? t('console') : t('pricing_cta')}</button>
         </div>
       </section>
 

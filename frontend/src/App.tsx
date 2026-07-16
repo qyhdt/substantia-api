@@ -24,6 +24,8 @@ export default function App() {
   // 未登录时的页面：先看落地页，点登录/注册再进表单
   const [authView, setAuthView] = useState<'landing' | 'auth'>('landing')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  // 已登录也能回看落地页（点品牌 Logo）；进控制台再切回。
+  const [homeView, setHomeView] = useState(false)
 
   // 启动时只在「本浏览器登录过」时才探会话；匿名访客直接进落地页，不打 /portal/me（避免 401 噪音）
   useEffect(() => {
@@ -89,11 +91,17 @@ export default function App() {
     return <ForceChangePassword onDone={async () => { const me = await portal.me(); setUser(me) }} onLogout={logout} />
   }
 
+  // 已登录用户回看落地页（品牌页/价格页）；「进入控制台」返回。
+  if (homeView) {
+    return <Landing loggedIn onEnter={() => setHomeView(false)} onAuth={() => setHomeView(false)} />
+  }
+
   const isAdmin = user.role === 'admin'
   return (
     <div className="ak-app">
       <div className="ak-top">
-        <div className="ak-brand">{BRAND.name} <span>{t('brand_tag')}</span></div>
+        <div className="ak-brand" style={{ cursor: 'pointer' }} title={t('view_home')}
+          onClick={() => setHomeView(true)}>{BRAND.name} <span>{t('brand_tag')}</span></div>
         <div className="ak-userbox">
           {isAdmin && (
             <div className="ak-tabs" style={{ margin: 0 }}>
