@@ -20,12 +20,16 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null)
   const [booting, setBooting] = useState(true)
   const [firstKey, setFirstKey] = useState<string | undefined>()
-  const [view, setView] = useState<'user' | 'admin'>(() => readParam('view', ['user', 'admin'], 'user') as 'user' | 'admin')
+  // 已登录用户默认停在落地页(home)，点「控制台」才进 user/admin。带 ?tab 深链(如「去充值」)直达控制台。
+  const resolveView = (): 'home' | 'user' | 'admin' => {
+    const v = readParam('view', ['home', 'user', 'admin'], '')
+    if (v) return v as 'home' | 'user' | 'admin'
+    return new URLSearchParams(window.location.search).get('tab') ? 'user' : 'home'
+  }
+  const [view, setView] = useState<'home' | 'user' | 'admin'>(resolveView)
   // 未登录时的页面：先看落地页，点登录/注册再进表单
   const [authView, setAuthView] = useState<'landing' | 'auth'>('landing')
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
-  // 已登录也能回看落地页（点品牌 Logo）；进控制台再切回。
-  const [homeView, setHomeView] = useState(false)
 
   // 启动时只在「本浏览器登录过」时才探会话；匿名访客直接进落地页，不打 /portal/me（避免 401 噪音）
   useEffect(() => {
@@ -53,14 +57,15 @@ export default function App() {
   }, [user?.id])
 
   // 顶部「控制台/Admin」切换：同步到 ?view=，让强制刷新留在本视图；支持浏览器前进/后退。
-  function goView(v: 'user' | 'admin') {
+  function goView(v: 'home' | 'user' | 'admin') {
     setView(v)
     pushParams({ view: v })
   }
   useEffect(() => {
-    const onPop = () => setView(readParam('view', ['user', 'admin'], 'user') as 'user' | 'admin')
+    const onPop = () => setView(resolveView())
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function logout() {
@@ -81,7 +86,7 @@ export default function App() {
       <Login
         initialMode={authMode}
         onBack={() => setAuthView('landing')}
-        onAuthed={(u, key) => { localStorage.setItem('sa_session', '1'); setUser(u); setFirstKey(key); setView('user'); refreshBalance() }}
+        onAuthed={(u, key) => { localStorage.setItem('sa_session', '1'); setUser(u); setFirstKey(key); goView('user'); refreshBalance() }}
       />
     )
   }
@@ -91,9 +96,9 @@ export default function App() {
     return <ForceChangePassword onDone={async () => { const me = await portal.me(); setUser(me) }} onLogout={logout} />
   }
 
-  // 已登录用户回看落地页（品牌页/价格页）；「进入控制台」返回。
-  if (homeView) {
-    return <Landing loggedIn onEnter={() => setHomeView(false)} onAuth={() => setHomeView(false)} />
+  // 已登录默认停在落地页；点「控制台」进 user/admin。
+  if (view === 'home') {
+    return <Landing loggedIn onEnter={() => goView('user')} onAuth={() => goView('user')} />
   }
 
   const isAdmin = user.role === 'admin'
@@ -101,7 +106,7 @@ export default function App() {
     <div className="ak-app">
       <div className="ak-top">
         <div className="ak-brand" style={{ cursor: 'pointer' }} title={t('view_home')}
-          onClick={() => setHomeView(true)}>{BRAND.name} <span>{t('brand_tag')}</span></div>
+          onClick={() => goView('home')}>{BRAND.name} <span>{t('brand_tag')}</span></div>
         <div className="ak-userbox">
           {isAdmin && (
             <div className="ak-tabs" style={{ margin: 0 }}>
