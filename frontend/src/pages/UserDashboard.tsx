@@ -25,7 +25,7 @@ const ENDPOINTS: Record<Fmt, { titleKey: TKey; noteKey: TKey; curl: (k: string, 
     noteKey: 'anthropic_note',
     curl: (k, model) => `curl https://${BRAND.apiHost}/v1/messages \\
   -H "x-api-key: ${k}" -H "content-type: application/json" \\
-  -d '{"model":"${model}","messages":[{"role":"user","content":"hello"}]}'`,
+  -d '{"model":"${model}","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}'`,
   },
   openai: {
     titleKey: 'openai_compat' as TKey,
