@@ -117,6 +117,23 @@ class Settings(BaseSettings):
     # exec 撞 401/鉴权失败时，自动改路由到其它健康 slot 的最大尝试次数
     CLAUDE_EXEC_MAX_ATTEMPTS: int = 3
 
+    # ---------- ChatGPT 上游（两条，均配置门控；对齐 digital-platform--generator）----------
+    # 上游 A：ChatGPT 订阅（codex 容器）。每次请求 `docker run --rm codex-runner codex exec --json`，
+    #   挂载账号池里某个 <CODEX_ACCOUNTS_DIR>/<acc>/auth.json 的登录态。账号由 admin 网页 device-auth 登录写入。
+    #   门控：账号池里有 ≥1 个可用 auth.json 才启用。
+    CODEX_IMAGE: str = "codex-runner"                       # 本地镜像（Dockerfile.codex 构建，只带 codex CLI）
+    # 与境核AI/小智共用同一份 codex 账号池（同 host 同路径 bind）。留空=用 workspace 下默认。
+    CODEX_ACCOUNTS_DIR: str = "/home/work/workspaces/.codex-accounts"
+    CODEX_HOME_IN_CONTAINER: str = "/workspace/.codex"      # 账号目录挂进容器的 CODEX_HOME
+    CODEX_YOLO_FLAG: str = "--dangerously-bypass-approvals-and-sandbox"
+    CODEX_CONTAINER_MEMORY: str = "3g"
+    CODEX_CONTAINER_CPUS: float = 2.0
+    CODEX_EXEC_TIMEOUT: int = 600                           # 单次 codex exec 超时（秒）
+    CODEX_DEFAULT_MODEL: str = "gpt-5"                       # 请求未指明可识别 gpt 型号时的兜底
+    # 上游 B：OpenAI 官方 API key（passthrough 到 chat/completions）。留空=不启用该兜底。
+    OPENAI_API_KEY: str = ""
+    OPENAI_API_BASE: str = "https://api.openai.com/v1"
+
     # ---------- 权限 ----------
     # 拥有 /api/admin/* 权限的用户邮箱白名单（逗号分隔的 CSV 字符串；空 = 没人能用）
     # 取列表请用 settings.admin_emails_list（List[str]）

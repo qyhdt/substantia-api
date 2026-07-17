@@ -122,6 +122,17 @@ export const admin = {
   loginWrite: (session_id: string, data: string) => api.post('/admin/claude/login/write', { session_id, data }),
   loginFinish: (session_id: string) => api.post('/admin/claude/login/finish', { session_id }),
   loginCancel: (session_id: string) => api.post('/admin/claude/login/cancel', { session_id }),
+
+  // ChatGPT（codex 订阅）：门控状态 + 账号池 + device-auth 网页登录
+  codexStatus: () => api.get('/admin/codex/status'),
+  codexAccounts: () => api.get('/admin/codex/accounts'),
+  codexDeleteAccount: (acc: string) => api.del(`/admin/codex/accounts/${encodeURIComponent(acc)}`),
+  codexLoginStart: (account_id: string) => api.post('/admin/codex/login/start', { account_id }),
+  codexLoginRead: (session_id: string, offset: number) =>
+    api.get(`/admin/codex/login/read?session_id=${session_id}&offset=${offset}`),
+  codexLoginWrite: (session_id: string, data: string) => api.post('/admin/codex/login/write', { session_id, data }),
+  codexLoginFinish: (session_id: string) => api.post('/admin/codex/login/finish', { session_id }),
+  codexLoginCancel: (session_id: string) => api.post('/admin/codex/login/cancel', { session_id }),
 }
 
 export const fmtUsd = (micro: number | null | undefined) => `$${((micro || 0) / 1e6).toFixed(4)}`

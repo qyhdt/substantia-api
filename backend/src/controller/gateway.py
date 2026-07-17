@@ -27,6 +27,8 @@ from services.apikey import upstream_audit as audit
 from services.apikey import pricing  # noqa: F401  (用户用到，保留)
 from services.apikey import runner
 from services.apikey import usage as usage_svc
+from services.chatgpt import models as cg_models
+from services.chatgpt import provider as chatgpt
 from services.claude import docker_manager as dm
 from services.claude.registry import get_router
 from config.settings import settings
@@ -174,6 +176,37 @@ async def _run_and_bill(key: dict, user: dict, model: str, prompt: str, request:
     return result, billed
 
 
+# ============================ ChatGPT 上游（gpt-* / o* / codex 分流到这里）============================
+async def _run_chatgpt_and_bill(key: dict, user: dict, model: str, prompt: str, request: Request,
+                                *, messages=None, max_tokens=None):
+    """跑 ChatGPT（codex 订阅 / OpenAI key）+ 计费 + 记 usage。返回 ChatGptResult。失败抛 HTTPException。"""
+    request_id = (request_context.get({}) or {}).get("trace_id")
+    started = time.monotonic()
+    try:
+        result = await chatgpt.run(_safe_uid(user), prompt, model,
+                                   messages=messages, max_tokens=max_tokens)
+    except Exception as e:
+        code = getattr(e, "status", 502)
+        code = code if isinstance(code, int) and code >= 400 else 502
+        await usage_svc.record_and_charge(
+            api_key_id=key["id"], user_id=user["id"], slot_id=None, model=model,
+            prompt_tokens=0, completion_tokens=0,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            status_str="error", error_code=type(e).__name__, request_id=request_id,
+        )
+        log.warning("chatgpt upstream error: %s: %s", type(e).__name__, e)
+        raise HTTPException(status_code=code, detail=f"chatgpt upstream error: {e}")
+
+    latency_ms = int((time.monotonic() - started) * 1000)
+    await usage_svc.record_and_charge(
+        api_key_id=key["id"], user_id=user["id"], slot_id=result.slot_id, model=result.model,
+        prompt_tokens=result.prompt_tokens, completion_tokens=result.completion_tokens,
+        cache_read_tokens=result.cache_read_tokens, cache_write_tokens=result.cache_write_tokens,
+        latency_ms=latency_ms, attempts=result.attempts, status_str="ok", request_id=request_id,
+    )
+    return result
+
+
 # ============================ 原生透传（带 tools 走这条，支持 agent 工具调用）============================
 async def _bill_pt(key, user, model, in_tok, out_tok, latency_ms, request, *, slot_id=None,
                    cache_read=0, cache_write=0, status="ok", error_code=None):
@@ -290,6 +323,18 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
 @router.post("/messages", summary="Anthropic Messages 兼容入口（sk-key；全部原生透传，支持 Claude Code CLI）")
 async def messages(payload: MessagesIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
+
+    # ChatGPT 系模型（gpt-* / o* / codex）分流到 ChatGPT 上游，压平成 prompt 跑 codex/openai，
+    # 结果回成 Anthropic 响应格式。Claude 请求走下面原有的原生透传，零影响。
+    if cg_models.is_chatgpt_model(payload.model):
+        model = cg_models.normalize_model(payload.model, settings.CODEX_DEFAULT_MODEL)
+        usage_svc.precheck(key, user, model)
+        prompt = _build_prompt(payload)
+        result = await _run_chatgpt_and_bill(key, user, model, prompt, request,
+                                             max_tokens=payload.max_tokens)
+        resp = _anthropic_response(result, result.model)
+        return _sse_stream(resp) if payload.stream else JSONResponse(resp)
+
     model = pt.normalize_model(payload.model) or settings.AK_DEFAULT_MODEL
     usage_svc.precheck(key, user, model)  # 有效余额 / key 封顶 / 模型白名单
 
@@ -427,6 +472,18 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
 @router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key；全部翻译成原生透传）")
 async def chat_completions(payload: ChatCompletionsIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
+
+    # ChatGPT 系模型分流到 ChatGPT 上游；结构化 messages 直接给 OpenAI key 上游（保真），
+    # codex 上游用压平 prompt。结果回成 OpenAI 响应格式。Claude 请求走原有翻译透传。
+    if cg_models.is_chatgpt_model(payload.model):
+        model = cg_models.normalize_model(payload.model, settings.CODEX_DEFAULT_MODEL)
+        usage_svc.precheck(key, user, model)
+        prompt = _build_prompt(MessagesIn(model=model, messages=payload.messages))
+        result = await _run_chatgpt_and_bill(key, user, model, prompt, request,
+                                             messages=payload.messages, max_tokens=payload.max_tokens)
+        resp = _openai_response(result, result.model)
+        return _openai_sse_stream(resp) if payload.stream else JSONResponse(resp)
+
     model = pt.normalize_model(payload.model) or settings.AK_DEFAULT_MODEL
     usage_svc.precheck(key, user, model)
 

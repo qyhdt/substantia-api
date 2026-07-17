@@ -464,6 +464,7 @@ function Slots() {
   return (
     <>
     <LoginNewAccount onDone={() => state.reload()} />
+    <CodexAccounts />
     <Card title={t('admin_slots_title')} actions={<button className="ak-btn" onClick={ensure}>{t('admin_ensure_all')}</button>}>
       {msg && <div className="ak-ok">{msg}</div>}
       <p className="ak-muted">{t('admin_slot_desc_1')}<b>subscription</b>{t('admin_slot_desc_2')}<b>api_key</b>{t('admin_slot_desc_3')}</p>
@@ -526,9 +527,28 @@ function Slots() {
   )
 }
 
-// 交互式登录新增订阅账号：网页终端(xterm) 直连服务器上的登录容器，自己跑 claude auth login。
-function LoginNewAccount({ onDone }: { onDone: () => void }) {
+// 登录 API 组：claude（claude auth login）与 codex（codex login --device-auth）同架子，只换端点。
+type LoginApi = {
+  start: (id: string) => Promise<any>
+  read: (sid: string, off: number) => Promise<any>
+  write: (sid: string, d: string) => Promise<any>
+  finish: (sid: string) => Promise<any>
+  cancel: (sid: string) => Promise<any>
+}
+const CLAUDE_LOGIN: LoginApi = {
+  start: admin.loginStart, read: admin.loginRead, write: admin.loginWrite,
+  finish: admin.loginFinish, cancel: admin.loginCancel,
+}
+const CODEX_LOGIN: LoginApi = {
+  start: admin.codexLoginStart, read: admin.codexLoginRead, write: admin.codexLoginWrite,
+  finish: admin.codexLoginFinish, cancel: admin.codexLoginCancel,
+}
+
+// 交互式登录新增订阅账号：网页终端(xterm) 直连服务器上的登录容器，自己跑 claude auth login / codex login。
+function LoginNewAccount({ onDone, provider = 'claude' }: { onDone: () => void; provider?: 'claude' | 'codex' }) {
   const { t } = useI18n()
+  const isCodex = provider === 'codex'
+  const lapi = isCodex ? CODEX_LOGIN : CLAUDE_LOGIN
   const [open, setOpen] = useState(false)
   const [accId, setAccId] = useState('')
   const [sid, setSid] = useState<string | null>(null)
@@ -558,7 +578,7 @@ function LoginNewAccount({ onDone }: { onDone: () => void }) {
       term.open(termRef.current)
       term.onData((d) => {
         if (!sidRef.current) return
-        admin.loginWrite(sidRef.current, d).catch(() => {})
+        lapi.write(sidRef.current, d).catch(() => {})
         // 「Paste code here」这步 claude CLI 不回显；粘贴的长串本地打码回显（开头明文+中间****），让用户知道粘上了
         const clean = d.replace(/\x1b\[20[01]~/g, '').replace(/[\r\n]/g, '')
         if (clean.length > 8) {
@@ -584,11 +604,12 @@ function LoginNewAccount({ onDone }: { onDone: () => void }) {
     return s.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64)
   }
   async function start() {
-    const id = toSlotId(accId)
-    if (!id) return
+    // codex：账号名可留空自动编号，不做 slotId 转换；claude：邮箱→slotId 且必填。
+    const id = isCodex ? accId.trim() : toSlotId(accId)
+    if (!isCodex && !id) return
     setBusy(true); setErr(null); setMsg(null); setCredsReady(false)
     try {
-      const r = await admin.loginStart(id)
+      const r = await lapi.start(id)
       setSid(r.session_id); sidRef.current = r.session_id; offsetRef.current = 0
       setMsg(t('admin_login_connected'))
     } catch (e: any) { setErr(e?.message || t('failed')) } finally { setBusy(false) }
@@ -598,7 +619,7 @@ function LoginNewAccount({ onDone }: { onDone: () => void }) {
     const id = sidRef.current
     if (!id) return
     try {
-      const r = await admin.loginRead(id, offsetRef.current)
+      const r = await lapi.read(id, offsetRef.current)
       if (r.data) {
         const bin = atob(r.data)
         const bytes = new Uint8Array(bin.length)
@@ -614,14 +635,16 @@ function LoginNewAccount({ onDone }: { onDone: () => void }) {
     if (!sid) return
     setBusy(true); setErr(null)
     try {
-      const r = await admin.loginFinish(sid)
-      setMsg(t('admin_account_added').replace('{id}', String(r.account_id)).replace('{health}', String(r.health)))
+      const r = await lapi.finish(sid)
+      setMsg(isCodex
+        ? t('codex_account_added').replace('{id}', String(r.account_id))
+        : t('admin_account_added').replace('{id}', String(r.account_id)).replace('{health}', String(r.health)))
       teardown()
       onDone()
     } catch (e: any) { setErr(e?.message || t('failed')) } finally { setBusy(false) }
   }
   async function cancel() {
-    if (sid) await admin.loginCancel(sid).catch(() => {})
+    if (sid) await lapi.cancel(sid).catch(() => {})
     teardown(); setMsg(null); setErr(null)
   }
   function teardown() {
@@ -632,17 +655,19 @@ function LoginNewAccount({ onDone }: { onDone: () => void }) {
   if (!open) {
     return (
       <div style={{ marginBottom: 12 }}>
-        <button className="ak-btn primary" onClick={() => setOpen(true)}>{t('admin_login_add_btn')}</button>
+        <button className="ak-btn primary" onClick={() => setOpen(true)}>{t(isCodex ? 'codex_login_add_btn' : 'admin_login_add_btn')}</button>
       </div>
     )
   }
   return (
-    <Card title={t('admin_login_card_title')}>
-      <p className="ak-muted">{t('admin_login_desc_1')}<span className="ak-mono">name@gmail.com</span>{t('admin_login_desc_2')}<span className="ak-mono">claude auth login</span>{t('admin_login_desc_3')}</p>
+    <Card title={t(isCodex ? 'codex_login_card_title' : 'admin_login_card_title')}>
+      {isCodex
+        ? <p className="ak-muted">{t('codex_login_desc')}</p>
+        : <p className="ak-muted">{t('admin_login_desc_1')}<span className="ak-mono">name@gmail.com</span>{t('admin_login_desc_2')}<span className="ak-mono">claude auth login</span>{t('admin_login_desc_3')}</p>}
       {!sid ? (
         <div className="ak-row">
-          <input className="ak-input" placeholder={t('admin_ph_acc_id')} value={accId} onChange={(e) => setAccId(e.target.value)} />
-          <button className="ak-btn primary" disabled={busy || !accId} onClick={start}>{busy ? t('admin_connecting') : t('admin_start_login')}</button>
+          <input className="ak-input" placeholder={t(isCodex ? 'codex_ph_acc_id' : 'admin_ph_acc_id')} value={accId} onChange={(e) => setAccId(e.target.value)} />
+          <button className="ak-btn primary" disabled={busy || (!isCodex && !accId)} onClick={start}>{busy ? t('admin_connecting') : t('admin_start_login')}</button>
           <button className="ak-btn" onClick={() => setOpen(false)}>{t('admin_cancel')}</button>
         </div>
       ) : (
@@ -651,7 +676,7 @@ function LoginNewAccount({ onDone }: { onDone: () => void }) {
           <div className="ak-row" style={{ marginTop: 10 }}>
             <button className="ak-btn primary" disabled={busy || !credsReady} onClick={finish}
               title={credsReady ? '' : t('admin_finish_hint')}>
-              {busy ? t('admin_publishing') : credsReady ? t('admin_finish_ok') : t('admin_finish_wait')}
+              {busy ? t('admin_publishing') : credsReady ? t(isCodex ? 'codex_finish_ok' : 'admin_finish_ok') : t(isCodex ? 'codex_finish_wait' : 'admin_finish_wait')}
             </button>
             <button className="ak-btn danger" onClick={cancel}>{t('admin_abort')}</button>
           </div>
@@ -659,6 +684,48 @@ function LoginNewAccount({ onDone }: { onDone: () => void }) {
       )}
       {msg && <div className="ak-ok" style={{ marginTop: 8 }}>{msg}</div>}
       {err && <div className="ak-err" style={{ marginTop: 8 }}>{err}</div>}
+    </Card>
+  )
+}
+
+// ChatGPT（codex 订阅）面板：门控状态 + device-auth 登录 + 账号池管理。
+function CodexAccounts() {
+  const { t } = useI18n()
+  const state = useAsync(() => admin.codexStatus(), [])
+  async function del(acc: string) {
+    if (!window.confirm(acc)) return
+    try { await admin.codexDeleteAccount(acc) } catch { /* ignore */ }
+    state.reload()
+  }
+  return (
+    <Card title={t('codex_section_title')}>
+      <LoginNewAccount provider="codex" onDone={() => state.reload()} />
+      <Async state={state}>{(d: any) => (
+        <>
+          <div className={d.enabled ? 'ak-ok' : 'ak-err'} style={{ marginBottom: 8 }}>
+            {d.enabled ? t('codex_status_on') : t('codex_status_off')}
+          </div>
+          <p className="ak-muted" style={{ marginTop: 0 }}>
+            {d.openai_key_enabled ? t('codex_openai_key_on') : t('codex_openai_key_off')}
+          </p>
+          <div style={{ fontWeight: 600, margin: '10px 0 6px' }}>{t('codex_accounts_title')}</div>
+          <table className="ak-table">
+            <tbody>
+              {(d.codex_accounts || []).map((acc: string) => (
+                <tr key={acc}>
+                  <td className="ak-mono">{acc}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button className="ak-btn danger" onClick={() => del(acc)}>{t('codex_del')}</button>
+                  </td>
+                </tr>
+              ))}
+              {(d.codex_accounts || []).length === 0 && (
+                <tr><td className="ak-muted">{t('codex_empty')}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </>
+      )}</Async>
     </Card>
   )
 }

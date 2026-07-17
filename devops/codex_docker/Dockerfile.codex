@@ -1,0 +1,35 @@
+FROM node:20
+
+# codex-runner：OpenAI Codex CLI 的常驻/登录/exec 镜像，对标 claude_docker/Dockerfile.claude 的 claude-runner。
+#
+# 用途：
+#   - codex 订阅账号池的 exec 容器（挂 .codex-accounts/<acc> 提供 auth.json 登录态）
+#   - admin 网页交互式登录（docker run -it ... codex login --device-auth）
+#
+# 自建（deploy.sh 会自动 build）：
+#   docker build -t codex-runner -f codex_docker/Dockerfile.codex codex_docker
+#
+# 与 settings.VIBE_CODEX_IMAGE 对应（默认镜像名 codex-runner）。
+
+# node:20 (Debian bookworm 完整版) 已自带 git / curl / bash / ca-certificates
+# codex exec 常跑「运行测试并修复」这类活，补 python3 + 构建基础，让通用项目测试能跑。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Runtime dependencies used by the shared document, PDF, slide, and spreadsheet skills.
+RUN pip3 install --no-cache-dir --break-system-packages \
+        pypdf reportlab pdfplumber pypdfium2 pytesseract pdf2image \
+        python-docx openpyxl python-pptx \
+        pandas numpy Pillow beautifulsoup4 lxml markdown
+
+# 容器内直接装 Codex CLI：npm 按构建容器架构自动选包。用 npmmirror 国内镜像加速。
+# npm install -g 会把 bin 链到 /usr/local/bin/codex，无需手动 ln。
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install -g @openai/codex \
+    && which codex \
+    && codex --version
+
+WORKDIR /workspace
+CMD ["bash"]
