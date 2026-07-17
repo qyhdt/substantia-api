@@ -102,12 +102,11 @@ def shell_exec_claude(user_id: str, *claude_args: str) -> List[str]:
 
 
 def _resolve_image(slot: Slot) -> str:
+    # subscription：一律用本地 base 镜像（Dockerfile.claude 构建的 claude-runner，只带 claude CLI）。
+    # 凭据由 slot.creds_dir 挂载进 /workspace/.claude（见 _build_volumes），绝不烘进镜像、
+    # 也不拉远端预登录镜像（qyhdt/private:claude-loggedin-*）。忽略 slot.image 里的历史遗留值。
     if slot.type == SlotType.SUBSCRIPTION:
-        if not slot.image:
-            raise DockerManagerError(
-                f"subscription slot {slot.id} 缺 image（需预登录镜像，如 qyhdt/private:claude-loggedin-{slot.id}）"
-            )
-        return slot.image
+        return settings.CLAUDE_BASE_IMAGE or "claude-runner"
     # api_key：slot 指定镜像优先，否则用 base 镜像
     return slot.image or settings.CLAUDE_BASE_IMAGE
 
@@ -240,8 +239,8 @@ def ensure_slot_container(slot: Slot) -> dict:
         return {"container_id": c.id, "name": c.name, "status": c.status}
     except ImageNotFound as e:
         raise DockerManagerError(
-            f"镜像不存在：{image}。subscription 需先 pull 预登录镜像；"
-            f"api_key 需 build base：docker build -t {settings.CLAUDE_BASE_IMAGE} "
+            f"镜像不存在：{image}。本地 build base（只带 claude CLI，凭据靠挂载）："
+            f"docker build -t {settings.CLAUDE_BASE_IMAGE} "
             f"-f devops/claude_docker/Dockerfile.claude devops/claude_docker"
         ) from e
     except APIError as e:

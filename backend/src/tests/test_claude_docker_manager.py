@@ -34,10 +34,9 @@ def test_container_name():
 
 
 def test_resolve_image():
-    # 订阅必须有 image
-    with pytest.raises(dm.DockerManagerError):
-        dm._resolve_image(_sub(image=None))
-    assert dm._resolve_image(_sub(image="repo:claude-loggedin-sub-a")) == "repo:claude-loggedin-sub-a"
+    # 订阅一律用本地 base 镜像（凭据靠挂载）——忽略历史遗留的预登录 slot.image，绝不拉远端镜像
+    assert dm._resolve_image(_sub(image=None)) == dm.settings.CLAUDE_BASE_IMAGE
+    assert dm._resolve_image(_sub(image="repo:claude-loggedin-sub-a")) == dm.settings.CLAUDE_BASE_IMAGE
     # api_key 回落 base 镜像
     assert dm._resolve_image(_api(image=None)) == dm.settings.CLAUDE_BASE_IMAGE
     assert dm._resolve_image(_api(image="custom:tag")) == "custom:tag"
