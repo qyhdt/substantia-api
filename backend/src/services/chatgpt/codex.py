@@ -181,7 +181,10 @@ def _build_argv(acc_dir: Path, workdir: Path, model: str) -> Tuple[List[str], st
         "-w", "/workspace",
         settings.CODEX_IMAGE, "codex", "exec", "--json", settings.CODEX_YOLO_FLAG,
     ]
-    if model:
+    # ChatGPT 订阅账号只跑账号默认的 codex 模型，实测不认 `gpt-5` / `gpt-4o` 这类 API 型号名
+    # （会 400 "model is not supported when using Codex with a ChatGPT account"）。故仅当请求的是
+    # codex 原生模型（名字含 codex）才传 -m，否则不传、用账号默认。计价仍按用户请求的模型名（见 result()）。
+    if model and "codex" in model.lower():
         argv += ["-m", model]
     return argv, cname
 
