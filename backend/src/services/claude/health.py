@@ -4,8 +4,8 @@
 
 - probe_slot：在 slot 容器里真跑一次极简 claude，验活（顺带触发订阅 OAuth 续期 = 保活）。
 - probe_and_update：探测结果回写到路由池（healthy / unhealthy+cooldown）。
-- probe_loop：后台周期任务，对每个 enabled slot 轮探。exec 撞 401 的即时故障转移在
-  docker_manager.exec_claude 里；这里是周期性主动验活 + 让冷却过的 slot 复活。
+- probe_loop：后台周期任务，对每个 enabled slot 轮探。exec 撞 401/限额/上游故障的
+  即时故障转移在请求链里；这里只通过真实探测显式复活 unhealthy slot。
 
 订阅凭据续期：本设计里 slot 的 .claude 目录**直接**挂成 /workspace/.claude，容器内 claude
 续期就地写回该 host 目录（rename 在挂载目录内，安全），无需跨用户 harvest。

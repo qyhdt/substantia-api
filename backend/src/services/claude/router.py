@@ -13,19 +13,20 @@ argmax 即按 weight 比例分布；weight 相等时退化为均匀分布。
 """
 from __future__ import annotations
 
+from collections import defaultdict
 import hashlib
 import itertools
 import math
 import re
 import threading
-from typing import Dict, Iterable, List, Optional
+from typing import Collection, Dict, Iterable, List, Optional
 
 from config.settings import settings
 from services.claude.slots import Slot
 
 
 class NoRoutableSlotError(RuntimeError):
-    """池里没有任何可路由的 slot（全空 / 全禁用 / 全在冷却）。"""
+    """池里没有任何可路由的 slot（全空 / 全禁用 / 全不健康 / 本次均已排除）。"""
 
 
 def _hash01(key: str) -> float:
@@ -51,7 +52,12 @@ def _natural_key(s: str):
 
 
 class SlotRouter:
-    """slot 池 + HRW 路由。线程安全（健康态会被探针并发改）。"""
+    """slot 池 + 严格 priority + RR/HRW 路由。
+
+    priority 数值越小越优先；只有前一档没有候选（或被本次请求排除）时才进入
+    下一档。同 priority 内仍保留既有 round-robin / weighted-HRW 语义。
+    线程安全（健康态会被探针并发改）。
+    """
 
     def __init__(self, slots: Optional[Iterable[Slot]] = None) -> None:
         self._lock = threading.RLock()
@@ -97,30 +103,88 @@ class SlotRouter:
         with self._lock:
             return [s for s in self._slots.values() if s.is_routable(now)]
 
-    def route(self, user_id: str, now: Optional[float] = None) -> Slot:
+    def route_candidates(
+        self,
+        user_id: str,
+        now: Optional[float] = None,
+        exclude_slot_ids: Optional[Collection[str]] = None,
+    ) -> List[Slot]:
+        """返回一次请求可依次尝试的 slot 快照。
+
+        结果严格按 priority 从小到大排列且不重复；同 priority 内按当前策略排序：
+        HRW 为分数降序，RR 为本次发号器起点的轮转顺序。调用方可顺序遍历实现
+        subscription → Gemini → GLM 等透明故障转移。
+
+        ``exclude_slot_ids`` 用于重试时排除本请求已尝试的 slot。没有候选返回 []，
+        由 ``route`` 统一转换成 ``NoRoutableSlotError``。
+        """
+        excluded = set(exclude_slot_ids or ())
+        policy = (settings.CLAUDE_ROUTE_POLICY or "").strip().lower()
+        with self._lock:
+            candidates = [
+                slot for slot in self._slots.values()
+                if slot.id not in excluded and slot.is_routable(now)
+            ]
+            if not candidates:
+                return []
+
+            by_priority: Dict[int, List[Slot]] = defaultdict(list)
+            for slot in candidates:
+                by_priority[slot.priority].append(slot)
+
+            ordered: List[Slot] = []
+            if policy in ("hash", "hrw"):
+                for priority in sorted(by_priority):
+                    # score 几乎不会相等；自然序 tie-break 让结果与插入顺序无关。
+                    group = sorted(
+                        by_priority[priority],
+                        key=lambda slot: (-_score(user_id, slot), _natural_key(slot.id)),
+                    )
+                    ordered.extend(group)
+                return ordered
+
+            ticket = next(self._rr)
+            for priority in sorted(by_priority):
+                group = sorted(by_priority[priority], key=lambda slot: _natural_key(slot.id))
+                start = ticket % len(group)
+                ordered.extend(group[start:] + group[:start])
+            return ordered
+
+    def route(
+        self,
+        user_id: str,
+        now: Optional[float] = None,
+        exclude_slot_ids: Optional[Collection[str]] = None,
+    ) -> Slot:
         """按 CLAUDE_ROUTE_POLICY 选 slot；无可路由 slot 抛 NoRoutableSlotError。
         - hash/hrw：加权 HRW，同一用户固定命中同一 slot（会话粘性）。
-        - round_robin（默认）：按请求轮询，全量 slot 按 ID 自然序排队，从发号器指向的位置起
-          向下找第一个可路由的（跳过禁用/不健康的），user_id 不参与选择。"""
-        policy = (settings.CLAUDE_ROUTE_POLICY or "").strip().lower()
-        if policy in ("hash", "hrw"):
-            return self._route_hash(user_id, now)
-        return self._route_round_robin(now)
+        - round_robin（默认）：同档 slot 按 ID 自然序轮询，user_id 不参与选择。
+        两种策略都先严格选择最低可用 priority；可通过 exclude_slot_ids 排除已试 slot。
+        """
+        candidates = self.route_candidates(user_id, now, exclude_slot_ids)
+        if not candidates:
+            raise NoRoutableSlotError("no routable slot (empty / all disabled / all unhealthy / excluded)")
+        return candidates[0]
 
     def _route_hash(self, user_id: str, now: Optional[float] = None) -> Slot:
-        cands = self.routable_slots(now)
+        # 保留给既有内部/测试调用方；临时固定 HRW，不受当前 settings policy 影响。
+        with self._lock:
+            cands = [slot for slot in self._slots.values() if slot.is_routable(now)]
         if not cands:
-            raise NoRoutableSlotError("no routable slot (empty / all disabled / all in cooldown)")
-        return max(cands, key=lambda s: _score(user_id, s))
+            raise NoRoutableSlotError("no routable slot (empty / all disabled / all unhealthy)")
+        first_priority = min(slot.priority for slot in cands)
+        tier = [slot for slot in cands if slot.priority == first_priority]
+        return max(tier, key=lambda slot: _score(user_id, slot))
 
     def _route_round_robin(self, now: Optional[float] = None) -> Slot:
+        # 保留给既有内部/测试调用方；逻辑与 route_candidates 的 RR 首项一致。
         with self._lock:
-            ordered = sorted(self._slots.values(), key=lambda s: _natural_key(s.id))
-        if not ordered:
-            raise NoRoutableSlotError("no routable slot (empty / all disabled / all in cooldown)")
-        start = next(self._rr) % len(ordered)
-        for i in range(len(ordered)):
-            s = ordered[(start + i) % len(ordered)]
-            if s.is_routable(now):
-                return s
-        raise NoRoutableSlotError("no routable slot (empty / all disabled / all in cooldown)")
+            cands = [slot for slot in self._slots.values() if slot.is_routable(now)]
+            if not cands:
+                raise NoRoutableSlotError("no routable slot (empty / all disabled / all unhealthy)")
+            first_priority = min(slot.priority for slot in cands)
+            tier = sorted(
+                (slot for slot in cands if slot.priority == first_priority),
+                key=lambda slot: _natural_key(slot.id),
+            )
+            return tier[next(self._rr) % len(tier)]

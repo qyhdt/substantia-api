@@ -104,15 +104,24 @@ class Settings(BaseSettings):
     CLAUDE_SLOTS_SOURCE: str = "dir"
     # 路由策略：round_robin | hrw（会话粘性）。
     CLAUDE_ROUTE_POLICY: str = "round_robin"
+    # subscription 池全部不可用后的两级 api_key 兜底。priority 固定为 Gemini=100、GLM=200。
+    # Gemini 三件套都非空才合成 fallback-gemini slot（通常指向 Anthropic 兼容代理）。
+    CLAUDE_FALLBACK_GEMINI_BASE_URL: str = ""
+    CLAUDE_FALLBACK_GEMINI_AUTH_TOKEN: str = ""
+    CLAUDE_FALLBACK_GEMINI_MODEL: str = ""
+    # GLM 使用官方 Anthropic 兼容端点；token 非空（且 base/model 有值）才合成 fallback-glm。
+    CLAUDE_FALLBACK_GLM_BASE_URL: str = "https://open.bigmodel.cn/api/anthropic"
+    CLAUDE_FALLBACK_GLM_AUTH_TOKEN: str = ""
+    CLAUDE_FALLBACK_GLM_MODEL: str = "glm-5.2[1m]"
     # 本节点出口 IP：db 模式下按此 IP 从 claude_slots 取本机负责的账号（账号绑定服务器出口 IP）。
     CLAUDE_NODE_IP: str = ""
 
     # ---- 健康探针 / 保活 / 故障转移 ----
     # 启动是否拉起所有 enabled slot 容器 + 起健康探针
     CLAUDE_PROBE_ENABLED: bool = True
-    # 探针周期（秒）：每隔这么久对每个订阅 slot 真跑一次 claude（顺带触发 OAuth 续期保活 + 验活）
-    CLAUDE_PROBE_INTERVAL_SECONDS: int = 1200
-    # 探针/exec 判定为不健康后，多久内不再路由到它（冷却；过后乐观放行重探）
+    # 探针周期（秒）：每隔这么久对每个 slot 真跑一次 claude（订阅档顺带触发 OAuth 续期保活）
+    CLAUDE_PROBE_INTERVAL_SECONDS: int = 600
+    # 探针/exec 判定为不健康后的故障抑制窗口记录；恢复只由后续探针 mark_healthy 完成。
     CLAUDE_UNHEALTHY_COOLDOWN_SECONDS: int = 600
     # exec 撞 401/鉴权失败时，自动改路由到其它健康 slot 的最大尝试次数
     CLAUDE_EXEC_MAX_ATTEMPTS: int = 3

@@ -87,13 +87,6 @@ def _cli_model(model: str) -> Optional[str]:
     return None
 
 
-def _billed_model(slot: Slot, requested_model: str) -> str:
-    """计价用的「实际命中模型」：api_key slot 用其注入的 ANTHROPIC_MODEL；订阅 slot 用请求模型。"""
-    if slot.type == SlotType.API_KEY:
-        return (slot.env or {}).get("ANTHROPIC_MODEL") or requested_model
-    return requested_model
-
-
 def _parse_usage(output: str) -> Optional[Dict[str, Any]]:
     """从 `--output-format json` 输出里抽 {text, input_tokens, output_tokens}。失败返回 None。"""
     raw = (output or "").strip()
@@ -120,8 +113,7 @@ def _parse_usage(output: str) -> Optional[Dict[str, Any]]:
     text = obj.get("result")
     if text is None:
         text = obj.get("text") or obj.get("content") or ""
-    # 实际命中模型：claude `--output-format json` 的 modelUsage 给出真实跑的模型（带版本，
-    # 如 claude-opus-4-8）。取成本最高者为主模型，作为**计价依据**（订阅档真实模型 ≠ 请求别名）。
+    # 保留实际命中模型用于诊断；产品计价仍由调用方传入的 Claude model 决定。
     actual_model = None
     mu = obj.get("modelUsage")
     if isinstance(mu, dict) and mu:
@@ -164,7 +156,9 @@ def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResul
         demux=False,
     )
     out = res.output.decode("utf-8", "replace") if isinstance(res.output, bytes) else str(res.output)
-    auth_failed = res.exit_code != 0 and dm.looks_like_auth_failure(out)
+    auth_failed = res.exit_code != 0 and (
+        slot.type == SlotType.API_KEY or dm.looks_like_auth_failure(out)
+    )
 
     parsed = _parse_usage(out)
     estimated = parsed is None
@@ -179,8 +173,9 @@ def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResul
         text = out
         in_tok, out_tok = _estimate_tokens(prompt), _estimate_tokens(out)
 
-    # 计价模型：优先 claude 实际命中模型（modelUsage 解析），回退到 slot/请求推断
-    billed_model = (parsed and parsed.get("model")) or _billed_model(slot, model)
+    # 产品按用户请求的 Claude 型号计价；Gemini/GLM 只是内部容灾层，不能因
+    # 上游返回了 fallback model id 而改价或落到“未知模型=0 元”。
+    billed_model = model
     return RunnerResult(
         slot_id=slot.id, slot_type=slot.type.value,
         model=billed_model, text=text,
@@ -198,7 +193,7 @@ def run(user_id: str, prompt: str, model: str) -> RunnerResult:
     """
     dm.assert_safe_id(user_id, "user_id")
     router = get_router()
-    max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS)
+    max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS, len(router.all_slots()))
     last: Optional[RunnerResult] = None
 
     for attempt in range(1, max_attempts + 1):
@@ -207,7 +202,7 @@ def run(user_id: str, prompt: str, model: str) -> RunnerResult:
         result.attempts = attempt
         if not result.auth_failed:
             return result
-        log.warning("ak_runner slot %s 鉴权失败，转移（第 %d 次）", slot.id, attempt)
+        log.warning("ak_runner slot %s 上游失败，转移（第 %d 次）", slot.id, attempt)
         router.mark_unhealthy(slot.id, settings.CLAUDE_UNHEALTHY_COOLDOWN_SECONDS)
         last = result
 

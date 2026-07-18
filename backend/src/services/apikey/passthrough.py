@@ -6,12 +6,13 @@
 本模块直接拿 slot 的凭据打原生 `api.anthropic.com/v1/messages`：
 - subscription slot：用 OAuth access token（Bearer + anthropic-beta: oauth-2025-04-20），
   并在 system 开头注入 Claude Code 身份（否则订阅 OAuth 会被拒）。走订阅、不按 API 官方价。
-- api_key slot：转发到 slot 配的 ANTHROPIC_BASE_URL，用其 key（x-api-key）。
+- api_key slot：转发到 slot 配的 ANTHROPIC_BASE_URL；AUTH_TOKEN 用 Bearer，API_KEY 用 x-api-key。
 
 token 轮换：每次实时读 slot 的 .credentials.json（probe_loop 保活续期）。
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -23,6 +24,11 @@ from services.claude import docker_manager as dm
 from services.claude.slots import Slot, SlotType
 
 log = logging.getLogger("ak.passthrough")
+
+
+class UpstreamConfigurationError(RuntimeError):
+    """slot 缺少原生透传所需配置；异常文本不得包含凭据。"""
+
 
 ANTHROPIC_API = "https://api.anthropic.com"
 # 订阅 OAuth 必须的身份系统提示（缺它会被 429/拒）
@@ -300,7 +306,8 @@ def upstream_for(slot: Slot, client_headers: Optional[Dict[str, str]] = None) ->
     # api_key slot：转发到其配置的端点，用其 key
     env = slot.env or {}
     base = (env.get("ANTHROPIC_BASE_URL") or ANTHROPIC_API).rstrip("/")
-    key = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ANTHROPIC_API_KEY")
+    auth_token = (env.get("ANTHROPIC_AUTH_TOKEN") or "").strip()
+    api_key = (env.get("ANTHROPIC_API_KEY") or "").strip()
     if cli:
         headers = _forwarded_fingerprint(client_headers)
         headers["content-type"] = "application/json"
@@ -310,9 +317,47 @@ def upstream_for(slot: Slot, client_headers: Optional[Dict[str, str]] = None) ->
                    "user-agent": CLAUDE_CLI_UA}
         if client_beta:
             headers["anthropic-beta"] = client_beta
-    if key:
-        headers["x-api-key"] = key
+    # Claude Code 官方约定：ANTHROPIC_AUTH_TOKEN 是 Bearer token；只有
+    # ANTHROPIC_API_KEY 才走 x-api-key。两者并存时 AUTH_TOKEN 优先。
+    if auth_token:
+        headers["authorization"] = f"Bearer {auth_token}"
+    elif api_key:
+        headers["x-api-key"] = api_key
+    else:
+        raise UpstreamConfigurationError(f"slot {slot.id} 缺少 API 凭据")
     return base, headers, False
+
+
+def body_for_slot(slot: Slot, raw: Dict[str, Any], *, oauth: bool) -> Dict[str, Any]:
+    """从客户端原始 body 为一次 slot attempt 构造独立请求体。
+
+    每次 deep-copy 可避免前一档注入的身份、cache breakpoint 或 Gemini model
+    残留到下一档 GLM。API-key slot 必须用自身 ``ANTHROPIC_MODEL`` 覆盖客户端
+    Claude model；对外响应和计费模型由 gateway 单独保持为客户端模型。
+    """
+    body = copy.deepcopy(raw)
+    if slot.type == SlotType.API_KEY:
+        configured_model = ((slot.env or {}).get("ANTHROPIC_MODEL") or "").strip()
+        if not configured_model:
+            raise UpstreamConfigurationError(f"slot {slot.id} 缺少 ANTHROPIC_MODEL")
+        body["model"] = configured_model
+    if oauth:
+        inject_identity(body)
+    inject_cache_breakpoints(body)
+    return body
+
+
+_SSE_MODEL_RE = re.compile(rb'("model"\s*:\s*)"(?:\\.|[^"\\])*"')
+
+
+def rewrite_sse_model(frame: bytes, public_model: str) -> bytes:
+    """把单个完整 SSE frame 里的 JSON model 改成客户端请求的 Claude model。
+
+    gateway 会先按空行边界拼好 frame，因此即便 HTTP chunk 恰好截断 model 字段也能
+    正确替换。只改字段值，不解析/重排其余事件内容。
+    """
+    encoded = json.dumps(public_model, ensure_ascii=False).encode("utf-8")
+    return _SSE_MODEL_RE.sub(lambda match: match.group(1) + encoded, frame)
 
 
 # ============================ OpenAI ↔ Anthropic 协议翻译 ============================

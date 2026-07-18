@@ -4,7 +4,7 @@
 
 链路：鉴权 sk-key → 余额/封顶/模型白名单前置校验 → 把 messages 摊平成 prompt →
 services.apikey.runner.run（复用容器团队路由 + 故障转移，sub 用光自动接 api_key slot）→
-按命中模型计费扣余额 + 记 usage → 回 Anthropic 风格响应（支持 stream）。
+始终按客户端请求的 Claude 模型计费扣余额 + 记 usage → 回 Anthropic 风格响应（支持 stream）。
 """
 import asyncio
 import hashlib
@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from frame.sse import encode_event, sse_response
 from security.api_key_auth import authenticate_key
+from services.apikey import failover as pt_failover
 from services.apikey import passthrough as pt
 from services.apikey import upstream_audit as audit
 from services.apikey import pricing  # noqa: F401  (用户用到，保留)
@@ -31,6 +32,7 @@ from services.chatgpt import models as cg_models
 from services.chatgpt import provider as chatgpt
 from services.claude import docker_manager as dm
 from services.claude.registry import get_router
+from services.claude.slots import SlotType
 from config.settings import settings
 from utils.pm_logger import get_app_logger
 from utils.request_context import request_context
@@ -164,7 +166,9 @@ async def _run_and_bill(key: dict, user: dict, model: str, prompt: str, request:
         raise HTTPException(status_code=502, detail="all upstream credentials failed auth")
 
     billed = await usage_svc.record_and_charge(
-        api_key_id=key["id"], user_id=user["id"], slot_id=result.slot_id, model=result.model,
+        # Gemini/GLM are internal continuity tiers.  Product pricing remains
+        # tied to the Claude model the customer requested.
+        api_key_id=key["id"], user_id=user["id"], slot_id=result.slot_id, model=model,
         prompt_tokens=result.prompt_tokens, completion_tokens=result.completion_tokens,
         cache_read_tokens=getattr(result, "cache_read_tokens", 0),
         cache_write_tokens=getattr(result, "cache_write_tokens", 0),
@@ -209,13 +213,13 @@ async def _run_chatgpt_and_bill(key: dict, user: dict, model: str, prompt: str, 
 
 # ============================ 原生透传（带 tools 走这条，支持 agent 工具调用）============================
 async def _bill_pt(key, user, model, in_tok, out_tok, latency_ms, request, *, slot_id=None,
-                   cache_read=0, cache_write=0, status="ok", error_code=None):
+                   cache_read=0, cache_write=0, status="ok", error_code=None, attempts=1):
     request_id = (request_context.get({}) or {}).get("trace_id")
     return await usage_svc.record_and_charge(
         api_key_id=key["id"], user_id=user["id"], slot_id=slot_id, model=model,
         prompt_tokens=in_tok, completion_tokens=out_tok, latency_ms=latency_ms,
         cache_read_tokens=cache_read, cache_write_tokens=cache_write,
-        attempts=1, status_str=status, error_code=error_code, request_id=request_id,
+        attempts=max(1, int(attempts)), status_str=status, error_code=error_code, request_id=request_id,
     )
 
 
@@ -231,91 +235,222 @@ def _usage_anthropic(data: dict):
     )
 
 
+def _mark_passthrough_failed(slot_router, slot, attempt: int, reason: str) -> None:
+    """标记失败且只记非敏感摘要；reason 只能是 status/异常类名。"""
+    try:
+        slot_router.mark_unhealthy(slot.id, settings.CLAUDE_UNHEALTHY_COOLDOWN_SECONDS)
+    except Exception:
+        pass
+    log.warning("gateway passthrough slot %s failed (%s), trying next provider (attempt %d)",
+                slot.id, reason, attempt)
+
+
+async def _prepare_passthrough_attempt(slot, raw: dict, client_headers: dict, *, endpoint: str,
+                                       uid: str, key_id: Any):
+    """为一个 slot 构造独立请求；任何异常均由调用方按配置失败切下一档。"""
+    if slot.type == SlotType.SUBSCRIPTION:
+        # OAuth 文件可能要由容器初始化/续期；API-key 原生透传不需要 Docker。
+        await asyncio.to_thread(dm.ensure_slot_container, slot)
+    base, headers, oauth = pt.upstream_for(slot, client_headers)
+    body = pt.body_for_slot(slot, raw, oauth=oauth)
+    audit.record_upstream(
+        endpoint=endpoint, body=body, uid=uid, key_id=key_id, slot_id=slot.id,
+        oauth=oauth, base=pt_failover.safe_url_for_log(base),
+    )
+    return base, headers, body
+
+
+async def _post_passthrough_with_failover(*, slot_router, uid: str, raw: dict,
+                                          client_headers: dict, endpoint: str, key_id: Any):
+    """非流式原生 POST；顺序尝试 router 给出的所有 slot，且每个 slot 至多一次。"""
+    try:
+        candidates = pt_failover.candidate_slots(slot_router, uid)
+    except Exception as exc:  # no routable slot / router 配置异常
+        log.warning("gateway passthrough has no candidates (%s)", type(exc).__name__)
+        candidates = []
+
+    if not candidates:
+        return {
+            "slot": None, "status_code": 503, "attempts": 0, "latency_ms": 0,
+            "data": {"error": {"type": "upstream_unavailable", "message": "no upstream provider available"}},
+        }
+
+    total_started = time.monotonic()
+    last = None
+    for attempt, slot in enumerate(candidates, 1):
+        try:
+            base, headers, body = await _prepare_passthrough_attempt(
+                slot, raw, client_headers, endpoint=endpoint, uid=uid, key_id=key_id,
+            )
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.post(f"{base}/v1/messages", headers=headers, json=body)
+        except Exception as exc:  # 网络、URL、凭据文件或 slot 配置异常
+            _mark_passthrough_failed(slot_router, slot, attempt, type(exc).__name__)
+            last = None
+            continue
+
+        raw_text = response.text
+        parsed = True
+        try:
+            data = response.json()
+        except Exception:
+            parsed = False
+            data = {"error": {"type": "upstream", "message": raw_text[:500]}}
+
+        # 2xx 必须是 Messages JSON object；代理返回 HTML/空体属于本档异常，应切档。
+        if response.status_code < 300 and (not parsed or not isinstance(data, dict)):
+            _mark_passthrough_failed(slot_router, slot, attempt, "invalid_success_response")
+            last = {
+                "slot": slot, "status_code": 502, "attempts": attempt,
+                "latency_ms": int((time.monotonic() - total_started) * 1000),
+                "data": {"error": {"type": "upstream", "message": "invalid upstream response"}},
+            }
+            continue
+
+        result = {
+            "slot": slot, "status_code": response.status_code, "attempts": attempt,
+            "latency_ms": int((time.monotonic() - total_started) * 1000), "data": data,
+        }
+        if response.status_code >= 300 and pt_failover.is_retryable_response(
+            response.status_code, data if parsed else raw_text, slot=slot,
+        ):
+            _mark_passthrough_failed(slot_router, slot, attempt, f"http_{response.status_code}")
+            last = result
+            continue
+        return result
+
+    return last or {
+        "slot": None, "status_code": 502, "attempts": len(candidates),
+        "latency_ms": int((time.monotonic() - total_started) * 1000),
+        "data": {"error": {"type": "upstream_unavailable", "message": "all upstream providers unavailable"}},
+    }
+
+
+def _sse_error(data: Any) -> str:
+    """把上游错误包装成单个 SSE error frame。"""
+    if isinstance(data, bytes):
+        text = data.decode("utf-8", "replace")
+    elif isinstance(data, str):
+        text = data
+    else:
+        text = json.dumps(data, ensure_ascii=False, default=str)
+    return "event: error\ndata: " + text.replace("\n", " ") + "\n\n"
+
+
+def _pop_sse_frame(buffer: bytes):
+    """从任意 HTTP chunk 拼接结果中取一个完整 SSE frame；返回 (frame, sep, rest)。"""
+    found = [(i, sep) for sep in (b"\n\n", b"\r\n\r\n") if (i := buffer.find(sep)) >= 0]
+    if not found:
+        return None
+    i, sep = min(found, key=lambda item: item[0])
+    return buffer[:i], sep, buffer[i + len(sep):]
+
+
 async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Request):
     """带 tools 的请求：拿 slot 凭据直打 api.anthropic.com/v1/messages，原样转发/回传。"""
-    router = get_router()
+    slot_router = get_router()
     uid = _safe_uid(user)
     raw = {**raw, "model": pt.normalize_model(raw.get("model")) or settings.AK_DEFAULT_MODEL}
     model = raw["model"]
     stream = bool(raw.get("stream"))
     client_headers = dict(request.headers)  # 来源是真 CLI 时原样转发其指纹头
-    max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS)
-
-    async def pick():
-        s = router.route(uid)
-        try:
-            await asyncio.to_thread(dm.ensure_slot_container, s)  # 确保订阅凭据文件就绪
-        except Exception:
-            pass
-        return s
 
     if not stream:
-        last = None
-        for _ in range(max_attempts):
-            slot = await pick()
-            base, headers, oauth = pt.upstream_for(slot, client_headers)
-            body = pt.inject_identity(dict(raw)) if oauth else dict(raw)
-            pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点（多轮重复前缀走 10% 价）
-            audit.record_upstream(endpoint="anthropic", body=body, uid=uid,
-                                  key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
-            started = time.monotonic()
-            async with httpx.AsyncClient(timeout=300.0) as c:
-                r = await c.post(f"{base}/v1/messages", headers=headers, json=body)
-            latency = int((time.monotonic() - started) * 1000)
-            if r.status_code == 401 and oauth:
-                router.mark_unhealthy(slot.id, settings.CLAUDE_UNHEALTHY_COOLDOWN_SECONDS)
-                last = r
-                continue
-            try:
-                data = r.json()
-            except Exception:
-                data = {"error": {"type": "upstream", "message": r.text[:500]}}
-            if r.status_code < 300:
-                in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
-                await _bill_pt(key, user, data.get("model") or model, in_tok, out_tok, latency, request,
-                               slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok)
-            return JSONResponse(data, status_code=r.status_code)
-        return JSONResponse(
-            (last.json() if last is not None else {"error": "all upstream credentials failed auth"}),
-            status_code=(last.status_code if last is not None else 502),
+        result = await _post_passthrough_with_failover(
+            slot_router=slot_router, uid=uid, raw=raw, client_headers=client_headers,
+            endpoint="anthropic", key_id=key.get("id"),
         )
+        data = result["data"]
+        slot = result["slot"]
+        if result["status_code"] < 300 and slot is not None:
+            # 内部 Gemini/GLM 对客户端透明：响应与计费始终使用请求的 Claude model。
+            data = dict(data)
+            data["model"] = model
+            in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
+            await _bill_pt(
+                key, user, model, in_tok, out_tok, result["latency_ms"], request,
+                slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok,
+                attempts=result["attempts"],
+            )
+        return JSONResponse(data, status_code=result["status_code"])
 
-    # 流式：单次尝试，逐字节原样回传，结束后按 usage 计费
-    slot = await pick()
-    base, headers, oauth = pt.upstream_for(slot, client_headers)
-    body = pt.inject_identity(dict(raw)) if oauth else dict(raw)
-    pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点
-    audit.record_upstream(endpoint="anthropic", body=body, uid=uid,
-                          key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
-    started = time.monotonic()
+    # 流式：只有在收到某档 2xx 前允许切档；接受 2xx 后绝不重放，避免重复输出/双扣。
+    try:
+        candidates = pt_failover.candidate_slots(slot_router, uid)
+    except Exception as exc:
+        log.warning("gateway passthrough stream has no candidates (%s)", type(exc).__name__)
+        candidates = []
+    total_started = time.monotonic()
 
     async def gen():
-        buf: List[bytes] = []
-        try:
-            async with httpx.AsyncClient(timeout=600.0) as c:
-                async with c.stream("POST", f"{base}/v1/messages", headers=headers, json=body) as r:
-                    if r.status_code >= 400:
-                        err = await r.aread()
-                        if r.status_code == 401 and oauth:
-                            router.mark_unhealthy(slot.id, settings.CLAUDE_UNHEALTHY_COOLDOWN_SECONDS)
-                        yield "event: error\ndata: " + err.decode("utf-8", "replace") + "\n\n"
+        last_error: Any = {
+            "error": {"type": "upstream_unavailable", "message": "all upstream providers unavailable"}
+        }
+        for attempt, slot in enumerate(candidates, 1):
+            accepted = False
+            try:
+                base, headers, body = await _prepare_passthrough_attempt(
+                    slot, raw, client_headers, endpoint="anthropic", uid=uid, key_id=key.get("id"),
+                )
+                async with httpx.AsyncClient(timeout=600.0) as client:
+                    async with client.stream(
+                        "POST", f"{base}/v1/messages", headers=headers, json=body,
+                    ) as response:
+                        if response.status_code >= 300:
+                            error_bytes = await response.aread()
+                            last_error = error_bytes
+                            if pt_failover.is_retryable_response(
+                                response.status_code, error_bytes, slot=slot,
+                            ):
+                                _mark_passthrough_failed(
+                                    slot_router, slot, attempt, f"http_{response.status_code}",
+                                )
+                                continue
+                            yield _sse_error(error_bytes)
+                            return
+
+                        accepted = True
+                        raw_chunks: List[bytes] = []
+                        pending = b""
+                        try:
+                            async for chunk in response.aiter_bytes():
+                                raw_chunks.append(chunk)
+                                pending += chunk
+                                while (popped := _pop_sse_frame(pending)) is not None:
+                                    frame, separator, pending = popped
+                                    yield pt.rewrite_sse_model(frame, model) + separator
+                            if pending:
+                                yield pt.rewrite_sse_model(pending, model)
+                        except Exception as exc:
+                            # 已接受 2xx 后不能切档；仅返回安全错误，不输出异常文本。
+                            log.warning("gateway passthrough stream interrupted after success (%s)",
+                                        type(exc).__name__)
+                            yield _sse_error({"error": {"type": "upstream_stream_error",
+                                                        "message": "upstream stream interrupted"}})
+                        finally:
+                            text = b"".join(raw_chunks).decode("utf-8", "replace")
+                            mi = re.search(r'"input_tokens"\s*:\s*(\d+)', text)
+                            mo = re.findall(r'"output_tokens"\s*:\s*(\d+)', text)
+                            mcr = re.search(r'"cache_read_input_tokens"\s*:\s*(\d+)', text)
+                            mcw = re.search(r'"cache_creation_input_tokens"\s*:\s*(\d+)', text)
+                            in_tok = int(mi.group(1)) if mi else 0
+                            out_tok = int(mo[-1]) if mo else 0
+                            cr_tok = int(mcr.group(1)) if mcr else 0
+                            cw_tok = int(mcw.group(1)) if mcw else 0
+                            await _bill_pt(
+                                key, user, model, in_tok, out_tok,
+                                int((time.monotonic() - total_started) * 1000), request,
+                                slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok,
+                                attempts=attempt,
+                            )
                         return
-                    async for ch in r.aiter_bytes():
-                        buf.append(ch)
-                        yield ch
-        finally:
-            text = b"".join(buf).decode("utf-8", "replace")
-            mi = re.search(r'"input_tokens"\s*:\s*(\d+)', text)
-            mo = re.findall(r'"output_tokens"\s*:\s*(\d+)', text)
-            mcr = re.search(r'"cache_read_input_tokens"\s*:\s*(\d+)', text)
-            mcw = re.search(r'"cache_creation_input_tokens"\s*:\s*(\d+)', text)
-            in_tok = int(mi.group(1)) if mi else 0
-            out_tok = int(mo[-1]) if mo else 0
-            cr_tok = int(mcr.group(1)) if mcr else 0
-            cw_tok = int(mcw.group(1)) if mcw else 0
-            await _bill_pt(key, user, model, in_tok, out_tok,
-                           int((time.monotonic() - started) * 1000), request, slot_id=slot.id,
-                           cache_read=cr_tok, cache_write=cw_tok)
+            except Exception as exc:
+                if accepted:
+                    # 计费等 2xx 后内部异常不能驱动 provider 重放。
+                    raise
+                _mark_passthrough_failed(slot_router, slot, attempt, type(exc).__name__)
+                continue
+        yield _sse_error(last_error)
 
     return sse_response(gen())
 
@@ -415,7 +550,7 @@ async def list_models(auth: dict = Depends(authenticate_key)):
 
 async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request):
     """OpenAI 带 tools 的请求：翻译成 Anthropic → 原生透传（非流式上游）→ 翻译回 OpenAI。"""
-    router = get_router()
+    slot_router = get_router()
     uid = _safe_uid(user)
     raw = {**raw, "model": pt.normalize_model(raw.get("model")) or settings.AK_DEFAULT_MODEL}
     model = raw["model"]
@@ -423,50 +558,41 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
     anth = pt.openai_to_anthropic(raw)
     anth["stream"] = False
     client_headers = dict(request.headers)
-    max_attempts = max(1, settings.CLAUDE_EXEC_MAX_ATTEMPTS)
+    result = await _post_passthrough_with_failover(
+        slot_router=slot_router, uid=uid, raw=anth, client_headers=client_headers,
+        endpoint="openai", key_id=key.get("id"),
+    )
+    data = result["data"]
+    slot = result["slot"]
+    if result["status_code"] >= 300 or slot is None:
+        err = data.get("error") if isinstance(data, dict) else None
+        msg = (err or {}).get("message") if isinstance(err, dict) else None
+        if not msg:
+            msg = "upstream provider unavailable"
+        return JSONResponse(
+            {"error": {"message": msg, "type": "upstream_error"}},
+            status_code=result["status_code"],
+        )
 
-    last = None
-    for _ in range(max_attempts):
-        slot = router.route(uid)
-        try:
-            await asyncio.to_thread(dm.ensure_slot_container, slot)
-        except Exception:
-            pass
-        base, headers, oauth = pt.upstream_for(slot, client_headers)
-        body = pt.inject_identity(dict(anth)) if oauth else dict(anth)
-        pt.inject_cache_breakpoints(body)  # 注入 prompt caching 断点（Cursor 经此链路）
-        audit.record_upstream(endpoint="openai", body=body, uid=uid,
-                              key_id=key.get("id"), slot_id=slot.id, oauth=oauth, base=base)
-        started = time.monotonic()
-        async with httpx.AsyncClient(timeout=300.0) as c:
-            r = await c.post(f"{base}/v1/messages", headers=headers, json=body)
-        latency = int((time.monotonic() - started) * 1000)
-        if r.status_code == 401 and oauth:
-            router.mark_unhealthy(slot.id, settings.CLAUDE_UNHEALTHY_COOLDOWN_SECONDS)
-            last = r
-            continue
-        try:
-            data = r.json()
-        except Exception:
-            data = {}
-        if r.status_code >= 300:
-            msg = (data.get("error") or {}).get("message") or r.text[:300]
-            return JSONResponse({"error": {"message": msg, "type": "upstream_error"}}, status_code=r.status_code)
-        in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
-        await _bill_pt(key, user, data.get("model") or model, in_tok, out_tok, latency, request,
-                       slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok)
-        comp = pt.anthropic_to_openai(data)
-        if want_stream:
-            chunks = pt.openai_stream_chunks(comp)
+    # 翻译结果、计费均保持客户端请求的 Claude model；实际 provider 只记 slot_id。
+    data = dict(data)
+    data["model"] = model
+    in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
+    await _bill_pt(
+        key, user, model, in_tok, out_tok, result["latency_ms"], request,
+        slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok,
+        attempts=result["attempts"],
+    )
+    comp = pt.anthropic_to_openai(data)
+    if want_stream:
+        chunks = pt.openai_stream_chunks(comp)
 
-            async def gen():
-                for ch in chunks:
-                    yield ch
+        async def gen():
+            for chunk in chunks:
+                yield chunk
 
-            return sse_response(gen())
-        return JSONResponse(comp)
-    return JSONResponse({"error": {"message": "all upstream credentials failed auth"}},
-                        status_code=(last.status_code if last is not None else 502))
+        return sse_response(gen())
+    return JSONResponse(comp)
 
 
 @router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key；全部翻译成原生透传）")

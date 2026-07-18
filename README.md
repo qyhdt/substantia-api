@@ -70,6 +70,27 @@ npm run build                 # 产物在 dist/
 - API：`api.substantia.ai`
 - IDE：`ide.substantia.ai`
 
+### Claude 上游故障转移
+
+生产环境使用固定的三级顺序，不会在 Gemini 与 GLM 之间随机选路：
+
+| 优先级 | 上游 | 配置 |
+|---:|---|---|
+| `0` | Claude subscription | admin 管理的健康订阅 slot；同优先级内按 RR/weighted-HRW 配置路由 |
+| `100` | Gemini | 同机已有的 LiteLLM Anthropic bridge；`CLAUDE_FALLBACK_GEMINI_*` 三项齐全才启用 |
+| `200` | GLM-5.2 | 智谱官方 Anthropic 兼容端点；`CLAUDE_FALLBACK_GLM_AUTH_TOKEN` 非空才启用 |
+
+请求先走健康的 subscription；订阅出现鉴权失败、额度耗尽或其它可重试故障后转 Gemini，Gemini 仍不可用才转 GLM-5.2。即使命中 Gemini 或 GLM，计费仍以客户端原请求的 Claude 模型为准，不按实际 fallback 模型改价。
+
+部署变量见 `devops/deploy/.env.example`。Gemini 的 `AUTH_TOKEN` 填现有 LiteLLM 的 master token，而不是其 aicenter/Gemini 上游 key；默认 bridge 地址是宿主 `172.17.0.1:4000`。GLM 默认直连 `https://open.bigmodel.cn/api/anthropic`，模型使用 `glm-5.2[1m]`（参见[智谱 Claude Code 接入文档](https://docs.bigmodel.cn/cn/guide/develop/claude)）。
+
+所有真实 token 只能写入不入库的 `devops/deploy/.env`。不要把 token 写进前端、README、slot JSON 或管理端 CRUD；管理接口和 UI 只应显示优先级、配置状态或 env 变量名，绝不返回密钥值。修改 `.env` 后重建 backend 使配置生效：
+
+```bash
+cd devops/deploy
+docker compose up -d --force-recreate backend
+```
+
 ## License
 
 TBD

@@ -71,6 +71,7 @@ class SlotIn(BaseModel):
     type: SlotType = SlotType.SUBSCRIPTION
     enabled: bool = True
     weight: float = Field(default=1.0, gt=0)
+    priority: int = Field(default=0, ge=0)
     creds_dir: Optional[str] = None
     image: Optional[str] = None
     env: Dict[str, str] = Field(default_factory=dict)
@@ -79,16 +80,40 @@ class SlotIn(BaseModel):
 def _slot_view(s: Slot) -> dict:
     return {
         "id": s.id, "type": s.type.value, "enabled": s.enabled, "weight": s.weight,
+        "priority": s.priority, "managed": registry.is_managed_fallback_slot(s.id),
         "creds_dir": s.creds_dir, "image": s.image, "env_keys": sorted(s.env.keys()),
         "health": s.health.value, "cooldown_until": s.cooldown_until,
         "routable": s.is_routable(),
     }
 
 
+def _reject_managed_fallback(slot_id: str) -> None:
+    """环境托管 fallback 只能通过部署配置修改，slot CRUD 不得覆盖。"""
+    if registry.is_managed_fallback_slot(slot_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{slot_id} 由环境变量托管，请修改 CLAUDE_FALLBACK_* 配置",
+        )
+
+
 @admin_router.get("/slots", dependencies=[Depends(require_admin)], summary="列出 slot + 健康态")
 async def list_slots():
     if db_source.slots_source_is_db():
         rows = await asyncio.to_thread(db_source.db_list_slots)
+        # DB schema 暂无 priority；已有 DB 业务 slot 均属于最高优先级 0。保留 id
+        # 的陈旧 DB 行必须隐藏，由当前进程 settings 合成项取代，且只暴露 env keys。
+        rows = [row for row in rows if not registry.is_managed_fallback_slot(row.get("id", ""))]
+        for row in rows:
+            row["priority"] = 0
+            row["managed"] = False
+            row.setdefault("env_keys", [])
+        node = db_source.node_ip()
+        for slot in registry.get_router().all_slots():
+            if not registry.is_managed_fallback_slot(slot.id):
+                continue
+            view = _slot_view(slot)
+            view.update({"server_ip": node, "is_local": True})
+            rows.append(view)
         return {"slots": rows, "source": "db", "node_ip": db_source.node_ip()}
     return {"slots": [_slot_view(s) for s in registry.get_router().all_slots()], "source": "dir"}
 
@@ -116,6 +141,7 @@ def _refresh_and_ensure(slot_id: str) -> None:
 
 @admin_router.post("/slots", dependencies=[Depends(require_admin)], summary="db 源：新增/更新 slot（可粘贴 creds_json）")
 async def create_slot(payload: CreateSlotIn):
+    _reject_managed_fallback(payload.slot_id)
     if not db_source.slots_source_is_db():
         raise HTTPException(status_code=400, detail="仅 CLAUDE_SLOTS_SOURCE=db 支持")
     server_ip = payload.server_ip.strip() or db_source.node_ip()
@@ -148,6 +174,7 @@ async def create_slot(payload: CreateSlotIn):
 
 @admin_router.post("/slots/{slot_id}/enabled", dependencies=[Depends(require_admin)], summary="db 源：启用/禁用 slot")
 async def set_slot_enabled(slot_id: str, server_ip: str = "", value: str = "false"):
+    _reject_managed_fallback(slot_id)
     if not db_source.slots_source_is_db():
         raise HTTPException(status_code=400, detail="仅 CLAUDE_SLOTS_SOURCE=db 支持")
     enabled = value == "true"
@@ -164,6 +191,7 @@ async def set_slot_enabled(slot_id: str, server_ip: str = "", value: str = "fals
 
 @admin_router.post("/slots/{slot_id}/server", dependencies=[Depends(require_admin)], summary="db 源：把 slot 分配到别的服务器 IP")
 async def reassign_slot(slot_id: str, from_: str = Query("", alias="from"), to: str = ""):
+    _reject_managed_fallback(slot_id)
     if not db_source.slots_source_is_db():
         raise HTTPException(status_code=400, detail="仅 CLAUDE_SLOTS_SOURCE=db 支持")
     src = from_.strip() or db_source.node_ip()
@@ -194,6 +222,7 @@ async def reassign_slot(slot_id: str, from_: str = Query("", alias="from"), to: 
 async def upsert_slot(slot_id: str, payload: SlotIn):
     if payload.id != slot_id:
         raise HTTPException(status_code=400, detail="path slot_id 与 body.id 不一致")
+    _reject_managed_fallback(slot_id)
     r = registry.get_router()
     slots = {s.id: s for s in r.all_slots()}
     slots[payload.id] = Slot(**payload.model_dump())
@@ -203,6 +232,7 @@ async def upsert_slot(slot_id: str, payload: SlotIn):
 
 @admin_router.delete("/slots/{slot_id}", dependencies=[Depends(require_admin)], summary="删除 slot")
 async def delete_slot(slot_id: str, server_ip: str = ""):
+    _reject_managed_fallback(slot_id)
     if db_source.slots_source_is_db():
         sip = server_ip.strip() or db_source.node_ip()
         try:
@@ -262,6 +292,7 @@ class LoginSessIn(BaseModel):
 
 @admin_router.post("/login/start", dependencies=[Depends(require_admin)], summary="起一个交互式登录会话（新增订阅账号）")
 async def login_start(payload: LoginStartIn):
+    _reject_managed_fallback(payload.account_id)
     try:
         sid = await asyncio.to_thread(login_mod.start_login, payload.account_id)
     except dm.DockerManagerError as e:

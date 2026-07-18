@@ -6,12 +6,13 @@ HRW 路由性质测试：
 3. 加权分布（按 weight 比例）。
 4. 删除 slot：仅被删 slot 的用户被搬动（~1/N），其余用户原样不动。
 5. 新增 slot：仅 ~1/(N+1) 用户迁到新 slot，其余不动。
-6. 健康态：unhealthy 在冷却期被剔除并改路由；冷却过/复活后回流。
+6. 健康态：unhealthy 持续剔除，直到探针显式 mark_healthy 后回流。
 
 跑法（在 backend/src 下）：  python -m pytest tests/test_claude_router.py -q
 """
 import pytest
 
+from services.claude import router as router_mod
 from services.claude.router import NoRoutableSlotError, SlotRouter
 from services.claude.slots import Slot, SlotHealth
 
@@ -26,6 +27,12 @@ def _users(n: int) -> list[str]:
 
 def _assign(router: SlotRouter, users, now=None) -> dict[str, str]:
     return {u: router.route(u, now=now).id for u in users}
+
+
+@pytest.fixture(autouse=True)
+def _hrw_policy(monkeypatch):
+    """本文件的历史性质测试针对 HRW；RR 行为在专门用例里显式开启。"""
+    monkeypatch.setattr(router_mod.settings, "CLAUDE_ROUTE_POLICY", "hrw")
 
 
 def test_sticky_deterministic():
@@ -95,7 +102,7 @@ def test_add_slot_minimal_reshuffle():
     assert 0.15 < len(moved) / len(users) < 0.25, len(moved)
 
 
-def test_unhealthy_excluded_and_recovers():
+def test_unhealthy_excluded_until_probe_marks_healthy():
     r = SlotRouter([_sub("a"), _sub("b"), _sub("c")])
     users = _users(3000)
     base = _assign(r, users)
@@ -111,9 +118,14 @@ def test_unhealthy_excluded_and_recovers():
         if base[u] != "a":
             assert during[u] == base[u]
 
-    # 冷却已过 → 乐观放行，a 重新可路由，其用户回流（HRW 确定性）
+    # 冷却已过仍不可路由；只有健康探针显式 mark_healthy 才恢复。
     after = _assign(r, users, now=2000.0)
-    assert after == base
+    assert after == during
+    assert r.get("a").health == SlotHealth.UNHEALTHY
+
+    r.mark_healthy("a")
+    recovered = _assign(r, users, now=2001.0)
+    assert recovered == base
 
 
 def test_no_routable_slot_raises():
@@ -121,3 +133,53 @@ def test_no_routable_slot_raises():
     r.mark_unhealthy("a", cooldown_seconds=600, now=0.0)
     with pytest.raises(NoRoutableSlotError):
         r.route("user-1", now=1.0)
+
+
+def test_strict_priority_preempts_weight_and_falls_through():
+    primary = Slot(id="subscription", priority=0, weight=0.01)
+    gemini = Slot(id="fallback-gemini", priority=100, weight=1000)
+    glm = Slot(id="fallback-glm", priority=200, weight=1000)
+    r = SlotRouter([glm, gemini, primary])
+
+    # 不同 priority 绝不混权重：只要订阅可用，再大的 fallback weight 也抢不到流量。
+    assert {r.route(u).id for u in _users(1000)} == {"subscription"}
+
+    r.mark_unhealthy("subscription", cooldown_seconds=1, now=0)
+    assert {r.route(u, now=9999).id for u in _users(100)} == {"fallback-gemini"}
+    r.mark_unhealthy("fallback-gemini", cooldown_seconds=1, now=0)
+    assert r.route("user-1", now=9999).id == "fallback-glm"
+
+
+def test_route_candidates_are_priority_ordered_and_excludable():
+    r = SlotRouter([
+        Slot(id="sub-2", priority=0),
+        Slot(id="fallback-glm", priority=200),
+        Slot(id="sub-1", priority=0),
+        Slot(id="fallback-gemini", priority=100),
+    ])
+    candidates = r.route_candidates("sticky-user")
+    assert {s.id for s in candidates[:2]} == {"sub-1", "sub-2"}
+    assert [s.id for s in candidates[2:]] == ["fallback-gemini", "fallback-glm"]
+    assert len({s.id for s in candidates}) == len(candidates)
+
+    remaining = r.route_candidates(
+        "sticky-user", exclude_slot_ids={"sub-1", "sub-2", "fallback-gemini"},
+    )
+    assert [s.id for s in remaining] == ["fallback-glm"]
+
+
+def test_round_robin_is_preserved_within_priority(monkeypatch):
+    monkeypatch.setattr(router_mod.settings, "CLAUDE_ROUTE_POLICY", "round_robin")
+    r = SlotRouter([
+        Slot(id="acc10", priority=0),
+        Slot(id="fallback-gemini", priority=100),
+        Slot(id="acc2", priority=0),
+        Slot(id="acc1", priority=0),
+    ])
+    assert [r.route("ignored").id for _ in range(6)] == [
+        "acc1", "acc2", "acc10", "acc1", "acc2", "acc10",
+    ]
+
+    for sid in ("acc1", "acc2", "acc10"):
+        r.mark_unhealthy(sid)
+    assert r.route("ignored").id == "fallback-gemini"
