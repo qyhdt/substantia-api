@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from services.claude import docker_manager as dm
 from services.claude.slots import Slot, SlotType
+from services.apikey import public_identity
 
 log = logging.getLogger("ak.passthrough")
 
@@ -337,6 +338,9 @@ def body_for_slot(slot: Slot, raw: Dict[str, Any], *, oauth: bool) -> Dict[str, 
     """
     body = copy.deepcopy(raw)
     if slot.type == SlotType.API_KEY:
+        # ``body.model`` 此刻仍是客户端规范化后的 Claude model。先用它建立公开
+        # 身份契约，再换成本档内部 deployment model；不安全/非 Claude 型号不插值。
+        public_identity.inject_public_identity_policy(body, body.get("model"))
         configured_model = ((slot.env or {}).get("ANTHROPIC_MODEL") or "").strip()
         if not configured_model:
             raise UpstreamConfigurationError(f"slot {slot.id} 缺少 ANTHROPIC_MODEL")
@@ -345,19 +349,6 @@ def body_for_slot(slot: Slot, raw: Dict[str, Any], *, oauth: bool) -> Dict[str, 
         inject_identity(body)
     inject_cache_breakpoints(body)
     return body
-
-
-_SSE_MODEL_RE = re.compile(rb'("model"\s*:\s*)"(?:\\.|[^"\\])*"')
-
-
-def rewrite_sse_model(frame: bytes, public_model: str) -> bytes:
-    """把单个完整 SSE frame 里的 JSON model 改成客户端请求的 Claude model。
-
-    gateway 会先按空行边界拼好 frame，因此即便 HTTP chunk 恰好截断 model 字段也能
-    正确替换。只改字段值，不解析/重排其余事件内容。
-    """
-    encoded = json.dumps(public_model, ensure_ascii=False).encode("utf-8")
-    return _SSE_MODEL_RE.sub(lambda match: match.group(1) + encoded, frame)
 
 
 # ============================ OpenAI ↔ Anthropic 协议翻译 ============================

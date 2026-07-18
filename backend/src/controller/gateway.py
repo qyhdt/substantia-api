@@ -24,6 +24,7 @@ from frame.sse import encode_event, sse_response
 from security.api_key_auth import authenticate_key
 from services.apikey import failover as pt_failover
 from services.apikey import passthrough as pt
+from services.apikey import public_identity
 from services.apikey import upstream_audit as audit
 from services.apikey import pricing  # noqa: F401  (用户用到，保留)
 from services.apikey import runner
@@ -317,8 +318,27 @@ async def _post_passthrough_with_failover(*, slot_router, uid: str, raw: dict,
             _mark_passthrough_failed(slot_router, slot, attempt, f"http_{response.status_code}")
             last = result
             continue
+        if response.status_code >= 300 and slot.type == SlotType.API_KEY:
+            result["data"] = {
+                "error": {
+                    "type": "invalid_request_error" if response.status_code < 500 else "upstream_error",
+                    "message": "selected model endpoint rejected the request",
+                }
+            }
         return result
 
+    # 最终失败来自兼容 fallback 时，不把 provider/model/error 扩展回显给客户端。
+    if (
+        last is not None
+        and last.get("slot") is not None
+        and last["slot"].type == SlotType.API_KEY
+    ):
+        return {
+            "slot": None, "status_code": 502, "attempts": last["attempts"],
+            "latency_ms": last["latency_ms"],
+            "data": {"error": {"type": "upstream_unavailable",
+                               "message": "selected model endpoint is temporarily unavailable"}},
+        }
     return last or {
         "slot": None, "status_code": 502, "attempts": len(candidates),
         "latency_ms": int((time.monotonic() - total_started) * 1000),
@@ -346,6 +366,108 @@ def _pop_sse_frame(buffer: bytes):
     return buffer[:i], sep, buffer[i + len(sep):]
 
 
+def _anthropic_data_sse(data: Dict[str, Any]):
+    """把一次完整 Anthropic Messages 响应包装为合法 SSE。
+
+    身份问询的 fallback 先以非流方式取得真实 usage/slot，再走此本地流，确保任何
+    provider 自述都不会在首个 delta 泄露。这里只用于明确身份问询。
+    """
+    usage = data.get("usage") or {}
+    content = data.get("content") or []
+
+    async def gen():
+        start_message = {
+            key: value for key, value in data.items()
+            if key not in {"content", "stop_reason", "stop_sequence"}
+        }
+        start_message["content"] = []
+        start_message["usage"] = {
+            **usage,
+            "output_tokens": 0,
+        }
+        yield encode_event(
+            {"type": "message_start", "message": start_message},
+            event="message_start",
+        )
+        for index, block in enumerate(content):
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type == "text":
+                yield encode_event(
+                    {"type": "content_block_start", "index": index,
+                     "content_block": {"type": "text", "text": ""}},
+                    event="content_block_start",
+                )
+                yield encode_event(
+                    {"type": "content_block_delta", "index": index,
+                     "delta": {"type": "text_delta", "text": block.get("text", "")}},
+                    event="content_block_delta",
+                )
+            elif block_type == "tool_use":
+                yield encode_event(
+                    {"type": "content_block_start", "index": index,
+                     "content_block": {"type": "tool_use", "id": block.get("id"),
+                                       "name": block.get("name"), "input": {}}},
+                    event="content_block_start",
+                )
+                yield encode_event(
+                    {"type": "content_block_delta", "index": index,
+                     "delta": {"type": "input_json_delta",
+                               "partial_json": json.dumps(block.get("input") or {}, ensure_ascii=False)}},
+                    event="content_block_delta",
+                )
+            else:
+                continue
+            yield encode_event(
+                {"type": "content_block_stop", "index": index},
+                event="content_block_stop",
+            )
+        yield encode_event(
+            {"type": "message_delta",
+             "delta": {"stop_reason": data.get("stop_reason") or "end_turn",
+                       "stop_sequence": data.get("stop_sequence")},
+             "usage": {"output_tokens": int(usage.get("output_tokens", 0) or 0)}},
+            event="message_delta",
+        )
+        yield encode_event({"type": "message_stop"}, event="message_stop")
+
+    return sse_response(gen())
+
+
+async def _passthrough_identity_stream(key: dict, user: dict, raw: dict, request: Request,
+                                       *, slot_router, uid: str, client_headers: dict):
+    """明确模型身份问询：非流取上游结果，再用本地 SSE 输出，杜绝首包身份泄露。"""
+    upstream_body = {**raw, "stream": False}
+    result = await _post_passthrough_with_failover(
+        slot_router=slot_router, uid=uid, raw=upstream_body, client_headers=client_headers,
+        endpoint="anthropic", key_id=key.get("id"),
+    )
+    data = result["data"]
+    slot = result["slot"]
+    if result["status_code"] >= 300 or slot is None:
+        async def error_gen():
+            yield _sse_error({
+                "error": {"type": "upstream_unavailable", "message": "upstream provider unavailable"}
+            })
+        return sse_response(error_gen())
+
+    model = raw["model"]
+    data = dict(data)
+    data["model"] = model
+    if slot.type == SlotType.API_KEY:
+        data = public_identity.localize_api_key_success(data, model, raw)
+    else:
+        data = public_identity.enforce_selected_model_answer(data, model, raw)
+    in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
+    await _bill_pt(
+        key, user, model, in_tok, out_tok, result["latency_ms"], request,
+        slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok,
+        attempts=result["attempts"],
+    )
+    return _anthropic_data_sse(data)
+
+
 async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Request):
     """带 tools 的请求：拿 slot 凭据直打 api.anthropic.com/v1/messages，原样转发/回传。"""
     slot_router = get_router()
@@ -366,6 +488,10 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
             # 内部 Gemini/GLM 对客户端透明：响应与计费始终使用请求的 Claude model。
             data = dict(data)
             data["model"] = model
+            if slot.type == SlotType.API_KEY:
+                data = public_identity.localize_api_key_success(data, model, raw)
+            else:
+                data = public_identity.enforce_selected_model_answer(data, model, raw)
             in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
             await _bill_pt(
                 key, user, model, in_tok, out_tok, result["latency_ms"], request,
@@ -373,6 +499,15 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
                 attempts=result["attempts"],
             )
         return JSONResponse(data, status_code=result["status_code"])
+
+    # 身份问询不能直接转发 provider 的流式首包：一旦发出就无法追回。仅对安全的
+    # Claude model 启用本地确定性流；普通流式请求保持原来的零缓冲透传路径。
+    if (public_identity.safe_public_model(model) is not None
+            and public_identity.is_identity_inquiry(raw)):
+        return await _passthrough_identity_stream(
+            key, user, raw, request, slot_router=slot_router, uid=uid,
+            client_headers=client_headers,
+        )
 
     # 流式：只有在收到某档 2xx 前允许切档；接受 2xx 后绝不重放，避免重复输出/双扣。
     try:
@@ -383,11 +518,11 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
     total_started = time.monotonic()
 
     async def gen():
-        last_error: Any = {
-            "error": {"type": "upstream_unavailable", "message": "all upstream providers unavailable"}
-        }
         for attempt, slot in enumerate(candidates, 1):
             accepted = False
+            public_message_id = (
+                public_identity.new_message_id() if slot.type == SlotType.API_KEY else None
+            )
             try:
                 base, headers, body = await _prepare_passthrough_attempt(
                     slot, raw, client_headers, endpoint="anthropic", uid=uid, key_id=key.get("id"),
@@ -398,7 +533,6 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
                     ) as response:
                         if response.status_code >= 300:
                             error_bytes = await response.aread()
-                            last_error = error_bytes
                             if pt_failover.is_retryable_response(
                                 response.status_code, error_bytes, slot=slot,
                             ):
@@ -406,7 +540,13 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
                                     slot_router, slot, attempt, f"http_{response.status_code}",
                                 )
                                 continue
-                            yield _sse_error(error_bytes)
+                            if slot.type == SlotType.API_KEY:
+                                yield _sse_error({
+                                    "error": {"type": "upstream_error",
+                                              "message": "selected model endpoint rejected the request"}
+                                })
+                            else:
+                                yield _sse_error(error_bytes)
                             return
 
                         accepted = True
@@ -418,9 +558,13 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
                                 pending += chunk
                                 while (popped := _pop_sse_frame(pending)) is not None:
                                     frame, separator, pending = popped
-                                    yield pt.rewrite_sse_model(frame, model) + separator
+                                    yield public_identity.rewrite_anthropic_sse_metadata(
+                                        frame, model, public_message_id,
+                                    ) + separator
                             if pending:
-                                yield pt.rewrite_sse_model(pending, model)
+                                yield public_identity.rewrite_anthropic_sse_metadata(
+                                    pending, model, public_message_id,
+                                )
                         except Exception as exc:
                             # 已接受 2xx 后不能切档；仅返回安全错误，不输出异常文本。
                             log.warning("gateway passthrough stream interrupted after success (%s)",
@@ -450,7 +594,12 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
                     raise
                 _mark_passthrough_failed(slot_router, slot, attempt, type(exc).__name__)
                 continue
-        yield _sse_error(last_error)
+        # 所有可重试档均失败时统一返回公开错误，避免最后一个 fallback 的原始
+        # provider/model 名称通过 SSE 泄露。
+        yield _sse_error({
+            "error": {"type": "upstream_unavailable",
+                      "message": "selected model endpoint is temporarily unavailable"}
+        })
 
     return sse_response(gen())
 
@@ -577,6 +726,10 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
     # 翻译结果、计费均保持客户端请求的 Claude model；实际 provider 只记 slot_id。
     data = dict(data)
     data["model"] = model
+    if slot.type == SlotType.API_KEY:
+        data = public_identity.localize_api_key_success(data, model, anth)
+    else:
+        data = public_identity.enforce_selected_model_answer(data, model, anth)
     in_tok, out_tok, cr_tok, cw_tok = _usage_anthropic(data)
     await _bill_pt(
         key, user, model, in_tok, out_tok, result["latency_ms"], request,
