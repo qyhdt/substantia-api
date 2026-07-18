@@ -11,11 +11,12 @@ slot 配置来源（优先级，后续 M5 admin 接管）：
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from config.settings import settings
 from services.claude import store
@@ -26,6 +27,85 @@ log = logging.getLogger("claude.registry")
 
 _lock = threading.Lock()
 _router: Optional[SlotRouter] = None
+
+FALLBACK_GEMINI_ID = "fallback-gemini"
+FALLBACK_GLM_ID = "fallback-glm"
+_FALLBACK_SLOT_IDS = frozenset((FALLBACK_GEMINI_ID, FALLBACK_GLM_ID))
+_RUNTIME_FIELDS = {"health", "cooldown_until"}
+
+
+def is_managed_fallback_slot(slot_id: str) -> bool:
+    """该 id 是否由 env 独占管理，不能通过 slot CRUD 覆盖。"""
+    return slot_id in _FALLBACK_SLOT_IDS
+
+
+def fallback_slots_from_settings() -> List[Slot]:
+    """把配置齐全的 env 兜底档合成为只存在于运行时的 api_key slots。
+
+    固定优先级链：业务/订阅 slot（默认 0）→ Gemini（100）→ GLM（200）。
+    Gemini 必须显式配齐 base/token/model；GLM 的 base/model 有安全默认值，因此通常
+    只需提供 token。密钥只进入 Slot.env，日志和 fingerprint 都不会输出明文。
+    """
+    out: List[Slot] = []
+
+    gemini_base = (settings.CLAUDE_FALLBACK_GEMINI_BASE_URL or "").strip()
+    gemini_token = (settings.CLAUDE_FALLBACK_GEMINI_AUTH_TOKEN or "").strip()
+    gemini_model = (settings.CLAUDE_FALLBACK_GEMINI_MODEL or "").strip()
+    if gemini_base and gemini_token and gemini_model:
+        out.append(Slot(
+            id=FALLBACK_GEMINI_ID,
+            type=SlotType.API_KEY,
+            priority=100,
+            env={
+                "ANTHROPIC_BASE_URL": gemini_base,
+                "ANTHROPIC_AUTH_TOKEN": gemini_token,
+                "ANTHROPIC_MODEL": gemini_model,
+            },
+        ))
+
+    glm_base = (settings.CLAUDE_FALLBACK_GLM_BASE_URL or "").strip()
+    glm_token = (settings.CLAUDE_FALLBACK_GLM_AUTH_TOKEN or "").strip()
+    glm_model = (settings.CLAUDE_FALLBACK_GLM_MODEL or "").strip()
+    if glm_base and glm_token and glm_model:
+        out.append(Slot(
+            id=FALLBACK_GLM_ID,
+            type=SlotType.API_KEY,
+            priority=200,
+            env={
+                "ANTHROPIC_BASE_URL": glm_base,
+                "ANTHROPIC_AUTH_TOKEN": glm_token,
+                "ANTHROPIC_MODEL": glm_model,
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": glm_model,
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": glm_model,
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.7",
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
+            },
+        ))
+    return out
+
+
+def merge_fallback_slots(slots: Iterable[Slot]) -> List[Slot]:
+    """把 env 管理的兜底 slots 与任意来源的业务 slots 合并。
+
+    保留业务输入顺序，但无条件剔除业务来源里的两个保留 id，再追加当前 env 合成项。
+    因此撤掉 env 配置也会真正停用 fallback，不会从 store/DB 复活旧密钥或旧 priority。
+    """
+    merged = {slot.id: slot for slot in slots if slot.id not in _FALLBACK_SLOT_IDS}
+    for slot in fallback_slots_from_settings():
+        merged[slot.id] = slot
+    return list(merged.values())
+
+
+def slots_fingerprint(slots: Iterable[Slot]) -> str:
+    """返回 slot 业务配置的稳定指纹（排除运行时 health/cooldown）。"""
+    # 与 SlotRouter 一致，重复 id 采用最后一项；按 id 排序避免来源遍历顺序造成误刷新。
+    by_id = {slot.id: slot for slot in slots}
+    payload = [
+        by_id[slot_id].model_dump(mode="json", exclude=_RUNTIME_FIELDS)
+        for slot_id in sorted(by_id)
+    ]
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def accounts_dir() -> str:
@@ -92,11 +172,13 @@ def load_slots_by_source() -> Optional[List[Slot]]:
     - 否则账号目录 → slots.json（dir 源；未配目录时回落 store）。"""
     if (settings.CLAUDE_SLOTS_SOURCE or "").strip() == "db":
         from services.claude import db_source
-        return db_source.slots_from_db()  # None=失败/未配；[]=0 行
-    shared = slots_from_shared_accounts_dir()
-    if shared:
-        return shared
-    return store.load()
+        slots = db_source.slots_from_db()  # None=失败/未配；[]=0 行
+        return None if slots is None else merge_fallback_slots(slots)
+    # 只要显式配置了账号目录，它就是订阅 slot 的事实来源；即使当前为空，也不能
+    # 悄悄回落 slots.json 复活另一批旧账号。fallback 始终与扫描结果合并。
+    if accounts_dir():
+        return merge_fallback_slots(slots_from_shared_accounts_dir())
+    return merge_fallback_slots(store.load())
 
 
 def get_router() -> SlotRouter:
@@ -111,30 +193,28 @@ def get_router() -> SlotRouter:
 
 
 def refresh_shared_slots() -> Optional[SlotRouter]:
-    """周期热更新 slot 池：账号集有增删则重配（保留已有 slot 健康态）。
+    """周期热更新 slot 池：账号或业务配置变化则重配（保留已有 slot 健康态）。
     - db 源：查库结果为准（含删除/禁用）；查询失败(None)则不动现有池。
-    - dir 源：重扫目录，空则不动现有池（保持原行为）。
+    - dir 源：显式账号目录/slots.json 为准，增删至空也会刷新，避免旧凭据残留。
+    - fallback：与任一来源合并；env 的端点/token/model 改变即使 id 不变也会刷新。
     probe_loop 每轮调一次，让账号增删免重启即生效。"""
     slots = load_slots_by_source()
     if slots is None:
         # db 查询失败 / dir 未配：保留现有池不动
         return _router
-    is_db = (settings.CLAUDE_SLOTS_SOURCE or "").strip() == "db"
-    if not is_db and not slots:
-        # dir 源扫出空：沿用旧行为，不清空
-        return _router
-    cur_ids = {s.id for s in _router.all_slots()} if _router else set()
-    if {s.id for s in slots} != cur_ids:
-        log.info("slot 集变化 → 重配 slot 池 (source=%s): %s",
+    current = _router.all_slots() if _router else []
+    if slots_fingerprint(slots) != slots_fingerprint(current):
+        log.info("slot 配置变化 → 重配 slot 池 (source=%s): %s",
                  settings.CLAUDE_SLOTS_SOURCE, sorted(s.id for s in slots))
         return configure(slots)
     return _router
 
 
 def save_and_reconfigure(slots: List[Slot]) -> SlotRouter:
-    """admin 用：持久化 slot 列表到 store + 重建路由池（保留运行时健康态）。"""
-    store.save(slots)
-    return configure(slots)
+    """admin 用：仅持久化业务 slot，再合成 env fallback 并重建路由池。"""
+    persistent = [slot for slot in slots if slot.id not in _FALLBACK_SLOT_IDS]
+    store.save(persistent)
+    return configure(merge_fallback_slots(persistent))
 
 
 def reset_for_test() -> None:

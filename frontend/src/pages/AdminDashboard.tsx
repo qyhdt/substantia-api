@@ -467,37 +467,54 @@ function Slots() {
     <CodexAccounts />
     <Card title={t('admin_slots_title')} actions={<button className="ak-btn" onClick={ensure}>{t('admin_ensure_all')}</button>}>
       {msg && <div className="ak-ok">{msg}</div>}
-      <p className="ak-muted">{t('admin_slot_desc_1')}<b>subscription</b>{t('admin_slot_desc_2')}<b>api_key</b>{t('admin_slot_desc_3')}</p>
+      <div className="ak-muted" style={{ marginBottom: 14 }}>
+        <p style={{ margin: '0 0 4px' }}>
+          <b>{t('admin_slot_route_order')}</b>: <b>subscription</b> → <b>Gemini</b> → <b>GLM-5.2</b>
+        </p>
+        <p style={{ margin: '0 0 4px' }}>{t('admin_slot_route_detail')}</p>
+        <p style={{ margin: 0 }}>{t('admin_slot_billing_note')} {t('admin_slot_secret_note')}</p>
+      </div>
       <Async state={state}>{(d: any) => {
         const isDB = d.source === 'db'
+        const slots = d.slots || []
+        const hasPriority = slots.some((s: any) => s.priority != null)
         return (
         <>
         <table className="ak-table">
           <thead><tr>
             {isDB && <th>{t('admin_col_server')}</th>}
-            <th>{t('admin_col_id')}</th><th>{t('admin_col_type')}</th><th>{t('admin_col_weight')}</th>
+            <th>{t('admin_col_id')}</th><th>{t('admin_col_type')}</th>
+            {hasPriority && <th title={t('admin_priority_hint')}>{t('admin_col_priority')}</th>}
+            <th>{t('admin_col_weight')}</th>
             {isDB && <th>{t('admin_col_enabled')}</th>}
             <th>{t('admin_col_health')}</th><th>{t('admin_col_routable')}</th><th>{t('admin_col_image_env')}</th><th></th>
           </tr></thead>
           <tbody>
-            {(d.slots || []).map((s: any) => (
+            {slots.map((s: any) => {
+              const managed = s.managed === true || s.id === 'fallback-gemini' || s.id === 'fallback-glm'
+              return (
               <tr key={`${s.server_ip || ''}/${s.id}`}>
                 {isDB && <td className="ak-mono">{s.server_ip}</td>}
                 <td className="ak-mono">{s.id}</td>
                 <td><Pill kind={s.type === 'subscription' ? 'ok' : 'warn'}>{s.type}</Pill></td>
+                {hasPriority && <td title={t('admin_priority_hint')}>{s.priority ?? '—'}</td>}
                 <td>{s.weight}</td>
                 {isDB && <td><Pill kind={s.enabled ? 'ok' : 'bad'}>{s.enabled ? '✓' : '✕'}</Pill></td>}
                 <td><Pill kind={s.health === 'healthy' ? 'ok' : s.health === 'unknown' ? undefined : 'bad'}>{s.health}</Pill></td>
                 <td>{s.routable ? '✓' : '✕'}</td>
                 <td className="ak-mono ak-muted">{s.image || (s.env_keys?.length ? s.env_keys.join(',') : '—')}</td>
-                <td><div className="ak-row">
-                  {isDB && <button className="ak-btn" onClick={() => reassign(s)}>{t('admin_slot_reassign')}</button>}
-                  {isDB && <button className="ak-btn" onClick={() => toggle(s)}>{s.enabled ? t('admin_slot_disable') : t('admin_slot_enable')}</button>}
-                  <button className="ak-btn danger" onClick={() => del(s.id, s.server_ip)}>{t('admin_delete')}</button>
-                </div></td>
+                <td>{managed
+                  ? <Pill>{t('admin_slot_env_managed')}</Pill>
+                  : <div className="ak-row">
+                      {isDB && <button className="ak-btn" onClick={() => reassign(s)}>{t('admin_slot_reassign')}</button>}
+                      {isDB && <button className="ak-btn" onClick={() => toggle(s)}>{s.enabled ? t('admin_slot_disable') : t('admin_slot_enable')}</button>}
+                      <button className="ak-btn danger" onClick={() => del(s.id, s.server_ip)}>{t('admin_delete')}</button>
+                    </div>}
+                </td>
               </tr>
-            ))}
-            {(d.slots || []).length === 0 && <tr><td colSpan={isDB ? 9 : 7} className="ak-muted">{t('admin_empty_slots')}</td></tr>}
+              )
+            })}
+            {slots.length === 0 && <tr><td colSpan={(isDB ? 9 : 7) + (hasPriority ? 1 : 0)} className="ak-muted">{t('admin_empty_slots')}</td></tr>}
           </tbody>
         </table>
         {isDB && (

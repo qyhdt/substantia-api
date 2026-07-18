@@ -43,6 +43,8 @@ def test_store_round_trip(monkeypatch, tmp_path):
 
 
 def test_exec_failover_marks_unhealthy_and_reroutes(monkeypatch):
+    # 本用例先预判首选 slot，需使用会话粘性的 HRW；RR 的预读本身会推进发号器。
+    monkeypatch.setattr(dm.settings, "CLAUDE_ROUTE_POLICY", "hrw")
     r = registry.configure([_sub("sub-a"), _sub("sub-b")])
     uid = "u-tester"
     first = r.route(uid).id                     # 用户首选的 slot

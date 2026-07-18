@@ -68,6 +68,23 @@ def test_build_env_api_key_injects_all():
     assert env["HOME"] == "/workspace"
 
 
+def test_slot_config_fingerprint_is_stable_and_tracks_secret_or_model_changes():
+    base = _api(env={
+        "ANTHROPIC_BASE_URL": "https://proxy.example/anthropic",
+        "ANTHROPIC_AUTH_TOKEN": "secret-a",
+        "ANTHROPIC_MODEL": "gemini-3.5-flash",
+    })
+    same = _api(env=dict(base.env))
+    changed_key = _api(env={**base.env, "ANTHROPIC_AUTH_TOKEN": "secret-b"})
+    changed_model = _api(env={**base.env, "ANTHROPIC_MODEL": "glm-5.2[1m]"})
+
+    digest = dm._slot_config_fingerprint(base)
+    assert digest == dm._slot_config_fingerprint(same)
+    assert digest != dm._slot_config_fingerprint(changed_key)
+    assert digest != dm._slot_config_fingerprint(changed_model)
+    assert "secret-a" not in digest
+
+
 def test_build_volumes():
     # 订阅：挂 workspace + 独占凭据目录到 /workspace/.claude
     sub = _sub(creds_dir="/data/creds/sub-a")
