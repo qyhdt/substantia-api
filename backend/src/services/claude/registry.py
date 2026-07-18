@@ -28,10 +28,28 @@ log = logging.getLogger("claude.registry")
 _lock = threading.Lock()
 _router: Optional[SlotRouter] = None
 
-FALLBACK_GEMINI_ID = "fallback-gemini"
-FALLBACK_GLM_ID = "fallback-glm"
-_FALLBACK_SLOT_IDS = frozenset((FALLBACK_GEMINI_ID, FALLBACK_GLM_ID))
 _RUNTIME_FIELDS = {"health", "cooldown_until"}
+
+# ---- env 托管的兜底档表 ----
+# 固定优先级链：业务/订阅 slot（默认 0）→ 以下各档按 priority 升序依次兜底。
+# 新增一档只需在此登记（id、priority、settings 前缀、额外注入 env），无需改其它代码。
+# 每档的 <PREFIX>BASE_URL / <PREFIX>AUTH_TOKEN / <PREFIX>MODEL 三件套配齐才启用；
+# 密钥只进入 Slot.env，日志和 fingerprint 都不会输出明文。
+FALLBACK_TIERS: tuple = (
+    {
+        "id": "fallback-moxing",
+        "priority": 100,
+        "settings_prefix": "CLAUDE_FALLBACK_MOXING_",
+        "extra_env": {},
+    },
+    {
+        "id": "fallback-gemini",
+        "priority": 200,
+        "settings_prefix": "CLAUDE_FALLBACK_GEMINI_",
+        "extra_env": {},
+    },
+)
+_FALLBACK_SLOT_IDS = frozenset(tier["id"] for tier in FALLBACK_TIERS)
 
 
 def is_managed_fallback_slot(slot_id: str) -> bool:
@@ -39,48 +57,34 @@ def is_managed_fallback_slot(slot_id: str) -> bool:
     return slot_id in _FALLBACK_SLOT_IDS
 
 
+def _tier_slot(tier: dict) -> Optional[Slot]:
+    """按档表从 settings 合成一个兜底 slot；三件套不齐返回 None（该档停用）。"""
+    prefix = tier["settings_prefix"]
+    base = (getattr(settings, f"{prefix}BASE_URL", "") or "").strip()
+    token = (getattr(settings, f"{prefix}AUTH_TOKEN", "") or "").strip()
+    model = (getattr(settings, f"{prefix}MODEL", "") or "").strip()
+    if not (base and token and model):
+        return None
+    return Slot(
+        id=tier["id"],
+        type=SlotType.API_KEY,
+        priority=tier["priority"],
+        env={
+            "ANTHROPIC_BASE_URL": base,
+            "ANTHROPIC_AUTH_TOKEN": token,
+            "ANTHROPIC_MODEL": model,
+            **tier["extra_env"],
+        },
+    )
+
+
 def fallback_slots_from_settings() -> List[Slot]:
-    """把配置齐全的 env 兜底档合成为只存在于运行时的 api_key slots。
-
-    固定优先级链：业务/订阅 slot（默认 0）→ Gemini（100）→ GLM（200）。
-    Gemini 必须显式配齐 base/token/model；GLM 的 base/model 有安全默认值，因此通常
-    只需提供 token。密钥只进入 Slot.env，日志和 fingerprint 都不会输出明文。
-    """
+    """把配置齐全的 env 兜底档合成为只存在于运行时的 api_key slots（按档表顺序）。"""
     out: List[Slot] = []
-
-    gemini_base = (settings.CLAUDE_FALLBACK_GEMINI_BASE_URL or "").strip()
-    gemini_token = (settings.CLAUDE_FALLBACK_GEMINI_AUTH_TOKEN or "").strip()
-    gemini_model = (settings.CLAUDE_FALLBACK_GEMINI_MODEL or "").strip()
-    if gemini_base and gemini_token and gemini_model:
-        out.append(Slot(
-            id=FALLBACK_GEMINI_ID,
-            type=SlotType.API_KEY,
-            priority=100,
-            env={
-                "ANTHROPIC_BASE_URL": gemini_base,
-                "ANTHROPIC_AUTH_TOKEN": gemini_token,
-                "ANTHROPIC_MODEL": gemini_model,
-            },
-        ))
-
-    glm_base = (settings.CLAUDE_FALLBACK_GLM_BASE_URL or "").strip()
-    glm_token = (settings.CLAUDE_FALLBACK_GLM_AUTH_TOKEN or "").strip()
-    glm_model = (settings.CLAUDE_FALLBACK_GLM_MODEL or "").strip()
-    if glm_base and glm_token and glm_model:
-        out.append(Slot(
-            id=FALLBACK_GLM_ID,
-            type=SlotType.API_KEY,
-            priority=200,
-            env={
-                "ANTHROPIC_BASE_URL": glm_base,
-                "ANTHROPIC_AUTH_TOKEN": glm_token,
-                "ANTHROPIC_MODEL": glm_model,
-                "ANTHROPIC_DEFAULT_OPUS_MODEL": glm_model,
-                "ANTHROPIC_DEFAULT_SONNET_MODEL": glm_model,
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.7",
-                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
-            },
-        ))
+    for tier in FALLBACK_TIERS:
+        slot = _tier_slot(tier)
+        if slot is not None:
+            out.append(slot)
     return out
 
 

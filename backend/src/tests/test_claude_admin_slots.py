@@ -56,7 +56,7 @@ async def test_db_admin_list_adds_priority_and_runtime_fallback_without_secrets(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("slot_id", ["fallback-gemini", "fallback-glm"])
+@pytest.mark.parametrize("slot_id", ["fallback-moxing", "fallback-gemini"])
 async def test_managed_fallback_rejects_all_slot_mutations(slot_id):
     calls = [
         lambda: controller.create_slot(controller.CreateSlotIn(slot_id=slot_id)),

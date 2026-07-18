@@ -469,7 +469,7 @@ function Slots() {
       {msg && <div className="ak-ok">{msg}</div>}
       <div className="ak-muted" style={{ marginBottom: 14 }}>
         <p style={{ margin: '0 0 4px' }}>
-          <b>{t('admin_slot_route_order')}</b>: <b>subscription</b> → <b>Gemini</b> → <b>GLM-5.2</b>
+          <b>{t('admin_slot_route_order')}</b>: <b>subscription</b> → <b>moxing</b> → <b>Gemini</b>
         </p>
         <p style={{ margin: '0 0 4px' }}>{t('admin_slot_route_detail')}</p>
         <p style={{ margin: 0 }}>{t('admin_slot_billing_note')} {t('admin_slot_secret_note')}</p>
@@ -491,7 +491,7 @@ function Slots() {
           </tr></thead>
           <tbody>
             {slots.map((s: any) => {
-              const managed = s.managed === true || s.id === 'fallback-gemini' || s.id === 'fallback-glm'
+              const managed = s.managed === true || s.id === 'fallback-moxing' || s.id === 'fallback-gemini'
               return (
               <tr key={`${s.server_ip || ''}/${s.id}`}>
                 {isDB && <td className="ak-mono">{s.server_ip}</td>}

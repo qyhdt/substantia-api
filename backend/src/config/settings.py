@@ -104,15 +104,15 @@ class Settings(BaseSettings):
     CLAUDE_SLOTS_SOURCE: str = "dir"
     # 路由策略：round_robin | hrw（会话粘性）。
     CLAUDE_ROUTE_POLICY: str = "round_robin"
-    # subscription 池全部不可用后的两级 api_key 兜底。priority 固定为 Gemini=100、GLM=200。
-    # Gemini 三件套都非空才合成 fallback-gemini slot（通常指向 Anthropic 兼容代理）。
+    # subscription 池全部不可用后的 api_key 兜底链。档表见 services/claude/registry.py
+    # 的 FALLBACK_TIERS（priority 固定：moxing=100、gemini=200），新增档只需在档表登记。
+    # 每档三件套（BASE_URL/AUTH_TOKEN/MODEL）都非空才合成对应 slot；未配齐的档自动跳过。
+    CLAUDE_FALLBACK_MOXING_BASE_URL: str = ""
+    CLAUDE_FALLBACK_MOXING_AUTH_TOKEN: str = ""
+    CLAUDE_FALLBACK_MOXING_MODEL: str = ""
     CLAUDE_FALLBACK_GEMINI_BASE_URL: str = ""
     CLAUDE_FALLBACK_GEMINI_AUTH_TOKEN: str = ""
     CLAUDE_FALLBACK_GEMINI_MODEL: str = ""
-    # GLM 使用官方 Anthropic 兼容端点；token 非空（且 base/model 有值）才合成 fallback-glm。
-    CLAUDE_FALLBACK_GLM_BASE_URL: str = "https://open.bigmodel.cn/api/anthropic"
-    CLAUDE_FALLBACK_GLM_AUTH_TOKEN: str = ""
-    CLAUDE_FALLBACK_GLM_MODEL: str = "glm-5.2[1m]"
     # 本节点出口 IP：db 模式下按此 IP 从 claude_slots 取本机负责的账号（账号绑定服务器出口 IP）。
     CLAUDE_NODE_IP: str = ""
 

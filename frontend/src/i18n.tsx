@@ -382,8 +382,8 @@ const DICT = {
     admin_login_desc_3: '：把它给的 URL 复制到浏览器登录你的 Claude 订阅，拿到 code 粘回终端回车（若让选组织/账号，用 ↑↓ + 回车）。凭据写好后点「完成并上架」。',
     // slot / fallback 说明
     admin_slot_route_order: '固定故障转移顺序',
-    admin_slot_route_detail: '请求先进入健康订阅 slot；订阅不可用或遇到 401 / 额度耗尽时转 Gemini（同机 LiteLLM Anthropic bridge），Gemini 仍失败才转智谱官方 GLM-5.2。优先级数字越小越先，同级内按已配置的 RR/weighted-HRW 策略路由。',
-    admin_slot_billing_note: '命中 Gemini 或 GLM-5.2 时，仍按原请求的 Claude 模型计费。',
+    admin_slot_route_detail: '请求先进入健康订阅 slot；订阅不可用或遇到 401 / 额度耗尽时转 moxing（Anthropic 兼容网关），moxing 仍失败才转 Gemini（同机 LiteLLM Anthropic bridge）。优先级数字越小越先，同级内按已配置的 RR/weighted-HRW 策略路由。',
+    admin_slot_billing_note: '命中 moxing 或 Gemini 时，仍按原请求的 Claude 模型计费。',
     admin_slot_secret_note: '上游 token 只从服务器 .env 读取，本页绝不回显。',
     // ChatGPT（codex 订阅）
     codex_section_title: 'ChatGPT 订阅 / API（codex 容器 + OpenAI key）',
@@ -775,8 +775,8 @@ const DICT = {
     admin_login_desc_3: ': copy the URL it gives you into a browser to log into your Claude subscription, then paste the code back into the terminal and press enter (if asked to pick an org/account, use ↑↓ + enter). Once credentials are written, click “Finish & publish”.',
     // slot / fallback description
     admin_slot_route_order: 'Fixed failover order',
-    admin_slot_route_detail: 'Requests use a healthy subscription slot first. If subscriptions are unavailable or hit a 401 / exhausted quota, traffic moves to Gemini through the same-host LiteLLM Anthropic bridge; only a Gemini failure moves it to the official GLM-5.2 Anthropic endpoint. Lower priorities run first; the configured RR/weighted-HRW policy applies within a tier.',
-    admin_slot_billing_note: 'Gemini and GLM-5.2 fallbacks are still billed as the originally requested Claude model.',
+    admin_slot_route_detail: 'Requests use a healthy subscription slot first. If subscriptions are unavailable or hit a 401 / exhausted quota, traffic moves to moxing (an Anthropic-compatible gateway); only a moxing failure moves it to Gemini through the same-host LiteLLM Anthropic bridge. Lower priorities run first; the configured RR/weighted-HRW policy applies within a tier.',
+    admin_slot_billing_note: 'moxing and Gemini fallbacks are still billed as the originally requested Claude model.',
     admin_slot_secret_note: 'Upstream tokens are read only from the server .env and are never displayed here.',
     // ChatGPT (codex subscription)
     codex_section_title: 'ChatGPT subscription / API (codex container + OpenAI key)',

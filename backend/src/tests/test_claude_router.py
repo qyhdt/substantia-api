@@ -137,42 +137,42 @@ def test_no_routable_slot_raises():
 
 def test_strict_priority_preempts_weight_and_falls_through():
     primary = Slot(id="subscription", priority=0, weight=0.01)
-    gemini = Slot(id="fallback-gemini", priority=100, weight=1000)
-    glm = Slot(id="fallback-glm", priority=200, weight=1000)
-    r = SlotRouter([glm, gemini, primary])
+    moxing = Slot(id="fallback-moxing", priority=100, weight=1000)
+    gemini = Slot(id="fallback-gemini", priority=200, weight=1000)
+    r = SlotRouter([gemini, moxing, primary])
 
     # 不同 priority 绝不混权重：只要订阅可用，再大的 fallback weight 也抢不到流量。
     assert {r.route(u).id for u in _users(1000)} == {"subscription"}
 
     r.mark_unhealthy("subscription", cooldown_seconds=1, now=0)
-    assert {r.route(u, now=9999).id for u in _users(100)} == {"fallback-gemini"}
-    r.mark_unhealthy("fallback-gemini", cooldown_seconds=1, now=0)
-    assert r.route("user-1", now=9999).id == "fallback-glm"
+    assert {r.route(u, now=9999).id for u in _users(100)} == {"fallback-moxing"}
+    r.mark_unhealthy("fallback-moxing", cooldown_seconds=1, now=0)
+    assert r.route("user-1", now=9999).id == "fallback-gemini"
 
 
 def test_route_candidates_are_priority_ordered_and_excludable():
     r = SlotRouter([
         Slot(id="sub-2", priority=0),
-        Slot(id="fallback-glm", priority=200),
+        Slot(id="fallback-gemini", priority=200),
         Slot(id="sub-1", priority=0),
-        Slot(id="fallback-gemini", priority=100),
+        Slot(id="fallback-moxing", priority=100),
     ])
     candidates = r.route_candidates("sticky-user")
     assert {s.id for s in candidates[:2]} == {"sub-1", "sub-2"}
-    assert [s.id for s in candidates[2:]] == ["fallback-gemini", "fallback-glm"]
+    assert [s.id for s in candidates[2:]] == ["fallback-moxing", "fallback-gemini"]
     assert len({s.id for s in candidates}) == len(candidates)
 
     remaining = r.route_candidates(
-        "sticky-user", exclude_slot_ids={"sub-1", "sub-2", "fallback-gemini"},
+        "sticky-user", exclude_slot_ids={"sub-1", "sub-2", "fallback-moxing"},
     )
-    assert [s.id for s in remaining] == ["fallback-glm"]
+    assert [s.id for s in remaining] == ["fallback-gemini"]
 
 
 def test_round_robin_is_preserved_within_priority(monkeypatch):
     monkeypatch.setattr(router_mod.settings, "CLAUDE_ROUTE_POLICY", "round_robin")
     r = SlotRouter([
         Slot(id="acc10", priority=0),
-        Slot(id="fallback-gemini", priority=100),
+        Slot(id="fallback-moxing", priority=100),
         Slot(id="acc2", priority=0),
         Slot(id="acc1", priority=0),
     ])
@@ -182,4 +182,4 @@ def test_round_robin_is_preserved_within_priority(monkeypatch):
 
     for sid in ("acc1", "acc2", "acc10"):
         r.mark_unhealthy(sid)
-    assert r.route("ignored").id == "fallback-gemini"
+    assert r.route("ignored").id == "fallback-moxing"
