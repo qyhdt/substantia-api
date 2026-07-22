@@ -667,19 +667,23 @@ function Bills() {
       <Async state={state}>{(data: any) => (<>
         <div className="ak-table-scroll">
           <table className="ak-table">
-            <thead><tr><th>{t('col_time')}</th><th>{t('col_model')}</th><th>{t('col_slot')}</th><th>{t('col_tokens')}</th><th>{t('col_cost')}</th><th>{t('col_status')}</th></tr></thead>
+            <thead><tr><th>{t('col_time')}</th><th>{t('col_model')}</th><th>{t('col_slot')}</th><th>{t('col_input_tokens')}</th><th>{t('col_output_tokens')}</th><th>{t('col_cache_tokens')}</th><th>{t('col_cost')}</th><th>{t('col_status')}</th></tr></thead>
             <tbody>
               {(data.items || []).map((r: any) => (
                 <tr key={r.id}>
                   <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
                   <td><b>{r.model}</b></td>
                   <td className="ak-mono">{r.slot_id || '—'}</td>
-                  <td>{fmtCount(r.total_tokens)} <span className="ak-muted">({fmtCount(r.prompt_tokens)}+{fmtCount(r.completion_tokens)})</span></td>
+                  <td>{fmtCount(r.prompt_tokens)}</td>
+                  <td>{fmtCount(r.completion_tokens)}</td>
+                  <td title={`${t('cache_read_short')} ${fmtCount(r.cache_read_tokens || 0)} · ${t('cache_write_short')} ${fmtCount(r.cache_write_tokens || 0)}`}>
+                    {fmtCount(Number(r.cache_read_tokens || 0) + Number(r.cache_write_tokens || 0))}
+                  </td>
                   <td><b>{fmtDisplayCurrency(r.cost_micro_usd, currency, Number(summary.data?.rmb_per_usd || RMB_PER_USD_FALLBACK))}</b></td>
                   <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status}</Pill></td>
                 </tr>
               ))}
-              {(data.items || []).length === 0 && <tr><td colSpan={6} className="ak-muted">{t('empty_usage')}</td></tr>}
+              {(data.items || []).length === 0 && <tr><td colSpan={8} className="ak-muted">{t('empty_usage')}</td></tr>}
             </tbody>
           </table>
         </div>

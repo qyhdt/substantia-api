@@ -6,10 +6,11 @@
 
 slot 池的真源是 services.claude（slots.json + 进程内 router）；这里只是它的 HTTP 管理面。
 """
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from config.settings import settings
@@ -237,6 +238,40 @@ async def usage_summary(days: int = 7):
         "rmb_rate_live": exchange["live"],
     })
     return result
+
+
+@router.get("/usage/details", summary="全站调用明细（邮箱与日期筛选）")
+async def usage_details(email: Optional[str] = None, start_date: Optional[date] = None,
+                        end_date: Optional[date] = None, limit: int = 50, offset: int = 0):
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must not be after end_date")
+    return await usage_svc.admin_usage_details(
+        email=email, start_date=start_date, end_date=end_date, limit=limit, offset=offset,
+    )
+
+
+@router.get("/usage/details/export", summary="按当前筛选导出全站调用明细 Excel")
+async def export_usage_details(email: Optional[str] = None, start_date: Optional[date] = None,
+                               end_date: Optional[date] = None, currency: str = "RMB"):
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must not be after end_date")
+    code = currency.strip().upper()
+    if code not in {"RMB", "USD"}:
+        raise HTTPException(status_code=422, detail="currency must be RMB or USD")
+    result = await usage_svc.admin_usage_details(
+        email=email, start_date=start_date, end_date=end_date, limit=100_000, offset=0, export=True,
+    )
+    exchange = await fx.current_usd_cny()
+    from services.apikey.xlsx_export import usage_details_xlsx
+    content = usage_details_xlsx(
+        result["items"], currency=code, rmb_per_usd=float(exchange["rate"]),
+    )
+    filename = f"usage-details-{datetime.now().strftime('%Y%m%d-%H%M%S')}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ============================== 墨行资金 / 成本 / 销售对账 ==============================

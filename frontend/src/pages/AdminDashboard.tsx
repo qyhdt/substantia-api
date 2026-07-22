@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { admin, RMB_PER_USD_FALLBACK } from '../api'
-import { Async, Card, Pill, useAsync } from '../components/common'
+import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 import { readParam, pushParams, hrefFor } from '../nav'
 import { useI18n, type TKey } from '../i18n'
 import { fmtDisplayCurrency, useDisplayCurrency, useRmbPerUsd, type DisplayCurrency } from '../currency'
@@ -353,20 +353,26 @@ function Prices() {
   const rmbPerUsd = useRmbPerUsd()
   const factor = currency === 'rmb' ? rmbPerUsd : 1
   const state = useAsync(() => admin.prices(), [])
-  const [f, setF] = useState({ model: '', display_name: '', input: 0, output: 0 })
-  // 编辑状态保留 USD/1k，输入框按当前显示币种换算；保存时转回 micro-USD/1k。
-  const [edit, setEdit] = useState<Record<string, { input: number; output: number }>>({})
+  const [f, setF] = useState({ model: '', display_name: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
+  // 编辑状态保留 USD/百万 token，输入框按当前显示币种换算；保存时转回 micro-USD/1k。
+  const [edit, setEdit] = useState<Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>>({})
   async function save() {
     if (!f.model) return
     await admin.upsertPrice({
       model: f.model, display_name: f.display_name,
-      input_micro_usd_per_1k: Math.round(f.input * 1e6), output_micro_usd_per_1k: Math.round(f.output * 1e6), enabled: true,
+      input_micro_usd_per_1k: Math.round(f.input * 1000), output_micro_usd_per_1k: Math.round(f.output * 1000),
+      cache_read_micro_usd_per_1k: Math.round(f.cacheRead * 1000), cache_write_micro_usd_per_1k: Math.round(f.cacheWrite * 1000), enabled: true,
     })
-    setF({ model: '', display_name: '', input: 0, output: 0 })
+    setF({ model: '', display_name: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
     state.reload()
   }
   function startEdit(p: any) {
-    setEdit({ ...edit, [p.model]: { input: (p.input_micro_usd_per_1k || 0) / 1e6, output: (p.output_micro_usd_per_1k || 0) / 1e6 } })
+    setEdit({ ...edit, [p.model]: {
+      input: (p.input_micro_usd_per_1k || 0) / 1000,
+      output: (p.output_micro_usd_per_1k || 0) / 1000,
+      cacheRead: (p.cache_read_micro_usd_per_1k || 0) / 1000,
+      cacheWrite: (p.cache_write_micro_usd_per_1k || 0) / 1000,
+    } })
   }
   function cancelEdit(model: string) {
     const e = { ...edit }; delete e[model]; setEdit(e)
@@ -375,8 +381,8 @@ function Prices() {
     const e = edit[p.model]; if (!e) return
     await admin.upsertPrice({
       model: p.model, display_name: p.display_name,
-      input_micro_usd_per_1k: Math.round(e.input * 1e6), output_micro_usd_per_1k: Math.round(e.output * 1e6),
-      cache_read_micro_usd_per_1k: p.cache_read_micro_usd_per_1k, cache_write_micro_usd_per_1k: p.cache_write_micro_usd_per_1k,
+      input_micro_usd_per_1k: Math.round(e.input * 1000), output_micro_usd_per_1k: Math.round(e.output * 1000),
+      cache_read_micro_usd_per_1k: Math.round(e.cacheRead * 1000), cache_write_micro_usd_per_1k: Math.round(e.cacheWrite * 1000),
       enabled: p.enabled,
     })
     cancelEdit(p.model)
@@ -394,18 +400,20 @@ function Prices() {
   return (
     <>
       <Card title={t('admin_price_add_title')}>
-        <div className="ak-row">
+        <div className="ak-row" style={{ flexWrap: 'wrap' }}>
           <input className="ak-input" placeholder="model id" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} />
           <input className="ak-input" placeholder={t('admin_ph_display_name')} value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} />
           <input className="ak-input" type="number" placeholder={`${t('admin_ph_input_price')} ${currency.toUpperCase()}`} value={Number((f.input * factor).toFixed(6))} onChange={(e) => setF({ ...f, input: Number(e.target.value) / factor })} style={{ width: 130 }} />
           <input className="ak-input" type="number" placeholder={`${t('admin_ph_output_price')} ${currency.toUpperCase()}`} value={Number((f.output * factor).toFixed(6))} onChange={(e) => setF({ ...f, output: Number(e.target.value) / factor })} style={{ width: 130 }} />
+          <input className="ak-input" type="number" placeholder={`${t('admin_cache_read')} ${currency.toUpperCase()}`} value={Number((f.cacheRead * factor).toFixed(6))} onChange={(e) => setF({ ...f, cacheRead: Number(e.target.value) / factor })} style={{ width: 130 }} />
+          <input className="ak-input" type="number" placeholder={`${t('admin_cache_write')} ${currency.toUpperCase()}`} value={Number((f.cacheWrite * factor).toFixed(6))} onChange={(e) => setF({ ...f, cacheWrite: Number(e.target.value) / factor })} style={{ width: 130 }} />
           <button className="ak-btn primary" onClick={save}>{t('admin_save')}</button>
         </div>
       </Card>
       <Card title={t('admin_price_table_title')}>
         <Async state={state}>{(rows: any[]) => (
-          <table className="ak-table">
-            <thead><tr><th>{t('admin_col_model')}</th><th>{t('admin_col_display_name')}</th><th>{t('admin_col_in_1k')}</th><th>{t('admin_col_out_1k')}</th><th>{t('admin_col_enabled')}</th><th></th></tr></thead>
+          <div className="ak-table-scroll"><table className="ak-table model-price-table">
+            <thead><tr><th>{t('admin_col_model')}</th><th>{t('admin_col_display_name')}</th><th>{t('admin_col_in_million')}</th><th>{t('admin_col_out_million')}</th><th>{t('admin_cache_read')}</th><th>{t('admin_cache_write')}</th><th>{t('admin_col_enabled')}</th><th></th></tr></thead>
             <tbody>
               {rows.map((p) => {
                 const e = edit[p.model]
@@ -414,13 +422,21 @@ function Prices() {
                     <td className="ak-mono">{p.model}</td>
                     <td>{p.display_name || '—'}</td>
                     <td>{e
-                      ? <input className="ak-input" type="number" step="0.0001" value={Number((e.input * factor).toFixed(6))} style={{ width: 110 }}
+                      ? <input className="ak-input" type="number" step="0.0001" value={Number((e.input * factor).toFixed(6))} style={{ width: 110, minWidth: 0 }}
                           onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, input: Number(ev.target.value) / factor } })} />
-                      : fmtDisplayCurrency(p.input_micro_usd_per_1k, currency, rmbPerUsd, 6)}</td>
+                      : fmtDisplayCurrency(Number(p.input_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, currency === 'rmb' ? 2 : 4)}</td>
                     <td>{e
-                      ? <input className="ak-input" type="number" step="0.0001" value={Number((e.output * factor).toFixed(6))} style={{ width: 110 }}
+                      ? <input className="ak-input" type="number" step="0.0001" value={Number((e.output * factor).toFixed(6))} style={{ width: 110, minWidth: 0 }}
                           onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, output: Number(ev.target.value) / factor } })} />
-                      : fmtDisplayCurrency(p.output_micro_usd_per_1k, currency, rmbPerUsd, 6)}</td>
+                      : fmtDisplayCurrency(Number(p.output_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, currency === 'rmb' ? 2 : 4)}</td>
+                    <td>{e
+                      ? <input className="ak-input" type="number" step="0.0001" value={Number((e.cacheRead * factor).toFixed(6))} style={{ width: 110, minWidth: 0 }}
+                          onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, cacheRead: Number(ev.target.value) / factor } })} />
+                      : fmtDisplayCurrency(Number(p.cache_read_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, currency === 'rmb' ? 2 : 4)}</td>
+                    <td>{e
+                      ? <input className="ak-input" type="number" step="0.0001" value={Number((e.cacheWrite * factor).toFixed(6))} style={{ width: 110, minWidth: 0 }}
+                          onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, cacheWrite: Number(ev.target.value) / factor } })} />
+                      : fmtDisplayCurrency(Number(p.cache_write_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, currency === 'rmb' ? 2 : 4)}</td>
                     <td>{p.supplier_managed
                       ? <Pill kind="warn">{t('admin_supplier_managed')}</Pill>
                       : <a className="ak-link" style={{ cursor: 'pointer' }} onClick={() => toggleEnabled(p)}>
@@ -443,7 +459,7 @@ function Prices() {
                 )
               })}
             </tbody>
-          </table>
+          </table></div>
         )}</Async>
       </Card>
     </>
@@ -1036,9 +1052,58 @@ function UsageBoard() {
         </Card>
         <Card title={t('admin_group_user')}><Agg rows={d.by_user} keyCol="email" currency={currency} rmbPerUsd={d.rmb_per_usd} /></Card>
         <Card title={t('admin_group_slot')}><Agg rows={d.by_slot} keyCol="slot_id" currency={currency} rmbPerUsd={d.rmb_per_usd} /></Card>
+        <AdminUsageDetails currency={currency} rmbPerUsd={Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)} />
       </>
     )}</Async>
   )
+}
+
+function AdminUsageDetails({ currency, rmbPerUsd }: { currency: DisplayCurrency; rmbPerUsd: number }) {
+  const { t } = useI18n()
+  const emptyFilters = { email: '', start_date: '', end_date: '' }
+  const [filters, setFilters] = useState(emptyFilters)
+  const [applied, setApplied] = useState(emptyFilters)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+  const state = useAsync(() => admin.usageDetails({
+    ...applied, limit: pageSize, offset: (page - 1) * pageSize,
+  }), [applied.email, applied.start_date, applied.end_date, page, pageSize])
+  const search = () => { setPage(1); setApplied({ ...filters }) }
+  const reset = () => { setFilters(emptyFilters); setApplied(emptyFilters); setPage(1) }
+  const exportExcel = () => {
+    window.location.href = admin.usageExportUrl({ ...applied, currency: currency.toUpperCase() })
+  }
+  return <Card title={t('admin_usage_details_title')} actions={
+    <button className="ak-btn" onClick={exportExcel}>{t('admin_export_excel')}</button>
+  }>
+    <div className="ak-row" style={{ flexWrap: 'wrap', marginBottom: 14 }}>
+      <input className="ak-input" type="email" placeholder={t('admin_email_search')} value={filters.email}
+        onChange={(e) => setFilters({ ...filters, email: e.target.value })}
+        onKeyDown={(e) => e.key === 'Enter' && search()} />
+      <label className="ak-muted">{t('admin_start_date')} <input className="ak-input" type="date" value={filters.start_date}
+        onChange={(e) => setFilters({ ...filters, start_date: e.target.value })} /></label>
+      <label className="ak-muted">{t('admin_end_date')} <input className="ak-input" type="date" value={filters.end_date}
+        onChange={(e) => setFilters({ ...filters, end_date: e.target.value })} /></label>
+      <button className="ak-btn primary" onClick={search}>{t('admin_search')}</button>
+      <button className="ak-btn" onClick={reset}>{t('admin_reset')}</button>
+    </div>
+    <Async state={state}>{(data: any) => <>
+      <div className="ak-table-scroll"><table className="ak-table admin-usage-details-table">
+        <thead><tr><th>{t('col_time')}</th><th>{t('admin_col_user')}</th><th>{t('col_model')}</th><th>{t('col_slot')}</th><th>{t('col_input_tokens')}</th><th>{t('col_output_tokens')}</th><th>{t('col_cache_tokens')}</th><th>{t('col_tokens')}</th><th>{t('col_cost')} ({currency.toUpperCase()})</th><th>{t('col_status')}</th></tr></thead>
+        <tbody>{(data.items || []).map((row: any) => <tr key={row.id}>
+          <td className="ak-muted">{fmtTime(row.created_at)}</td><td>{row.email}</td><td className="ak-mono">{row.model}</td><td className="ak-mono">{row.slot_id || '—'}</td>
+          <td>{fmtCount(row.prompt_tokens)}</td><td>{fmtCount(row.completion_tokens)}</td>
+          <td title={`${t('cache_read_short')} ${fmtCount(row.cache_read_tokens || 0)} · ${t('cache_write_short')} ${fmtCount(row.cache_write_tokens || 0)}`}>{fmtCount(Number(row.cache_read_tokens || 0) + Number(row.cache_write_tokens || 0))}</td>
+          <td>{fmtCount(row.total_tokens)}</td><td><b>{fmtDisplayCurrency(row.cost_micro_usd, currency, rmbPerUsd)}</b></td>
+          <td><Pill kind={row.status === 'ok' ? 'ok' : 'bad'}>{row.status}</Pill></td>
+        </tr>)}
+        {(data.items || []).length === 0 && <tr><td colSpan={10} className="ak-muted">{t('admin_empty_data')}</td></tr>}
+        </tbody>
+      </table></div>
+      <Pager total={data.total || 0} page={page} pageSize={pageSize} onPage={setPage}
+        onPageSize={(size) => { setPageSize(size); setPage(1) }} />
+    </>}</Async>
+  </Card>
 }
 
 function DailySpendChart({ rows, currency, rmbPerUsd }: { rows: any[]; currency: DisplayCurrency; rmbPerUsd: number }) {
