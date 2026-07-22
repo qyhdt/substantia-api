@@ -466,6 +466,7 @@ function Bills() {
         }}</Async>
       </Card>
       <Card title={t('billing_detail')}>
+      <p className="ak-muted" style={{ marginTop: 0, fontSize: 12 }}>{t('billing_detail_cny_note')}</p>
       <Async state={state}>{(data: any) => (<>
         <div className="ak-table-scroll">
           <table className="ak-table">
@@ -474,10 +475,10 @@ function Bills() {
               {(data.items || []).map((r: any) => (
                 <tr key={r.id}>
                   <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
-                  <td><b>{r.model}</b><div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(r.model) ? 'CNY' : 'USD'}</div></td>
+                  <td><b>{r.model}</b><div className="ak-muted" style={{ fontSize: 11 }}>CNY</div></td>
                   <td className="ak-mono">{r.slot_id || '—'}</td>
                   <td>{fmtCount(r.total_tokens)} <span className="ak-muted">({fmtCount(r.prompt_tokens)}+{fmtCount(r.completion_tokens)})</span></td>
-                  <td><b>{fmtModelCost(r.model, r.cost_micro_usd, summary.data?.rmb_per_usd)}</b></td>
+                  <td><b>{fmtCnyFromMicroUsd(r.cost_micro_usd, summary.data?.rmb_per_usd)}</b></td>
                   <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status}</Pill></td>
                 </tr>
               ))}
