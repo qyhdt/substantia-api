@@ -6,6 +6,8 @@
 
 slot 池的真源是 services.claude（slots.json + 进程内 router）；这里只是它的 HTTP 管理面。
 """
+from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +17,7 @@ from config.settings import settings
 from security.admin import require_admin
 from services.apikey import keys as keys_svc
 from services.apikey import fx
+from services.apikey import moxing_accounting as moxing_acct
 from services.apikey import payments as payments_svc
 from services.apikey import pricing as pricing_svc
 from services.apikey import topups as topups_svc
@@ -206,11 +209,13 @@ class PriceIn(BaseModel):
 
 @router.get("/model-prices", summary="模型定价列表")
 async def list_prices():
-    return await pricing_svc.list_prices()
+    return await pricing_svc.list_prices(include_supplier_terms=True)
 
 
 @router.post("/model-prices", summary="新增/更新模型定价")
 async def upsert_price(payload: PriceIn):
+    if await moxing_acct.is_managed_model(payload.model):
+        raise HTTPException(status_code=409, detail="该模型由墨行对账页的官网价与销售折扣统一管理")
     return await pricing_svc.upsert_price(
         payload.model, display_name=payload.display_name,
         input_micro_usd_per_1k=payload.input_micro_usd_per_1k,
@@ -233,6 +238,94 @@ async def usage_summary(days: int = 7):
         "rmb_rate_live": exchange["live"],
     })
     return result
+
+
+# ============================== 墨行资金 / 成本 / 销售对账 ==============================
+class MoxingMoneyIn(BaseModel):
+    amount: Decimal
+    currency: str = Field(default="USD", pattern="^(?i:USD|RMB)$")
+    reference: Optional[str] = Field(default=None, max_length=128)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class MoxingSnapshotIn(BaseModel):
+    amount: Decimal = Field(ge=0)
+    currency: str = Field(default="USD", pattern="^(?i:USD|RMB)$")
+    as_of: Optional[datetime] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class MoxingTermsIn(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=128)
+    official_input_usd_per_million: Decimal = Field(ge=0)
+    official_output_usd_per_million: Decimal = Field(ge=0)
+    official_cache_read_usd_per_million: Decimal = Field(ge=0)
+    official_cache_write_usd_per_million: Decimal = Field(ge=0)
+    supplier_multiplier: Decimal = Field(ge=0, le=100)
+    sale_multiplier: Decimal = Field(ge=0, le=100)
+
+
+@router.get("/moxing/accounting", summary="墨行余额、成本、销售额与利润对账")
+async def moxing_accounting(days: int = 30, limit: int = 100):
+    result = await moxing_acct.accounting_summary(days=days, limit=limit)
+    exchange = await fx.current_usd_cny()
+    result.update({
+        "rmb_per_usd": exchange["rate"],
+        "rmb_rate_date": exchange["date"],
+        "rmb_rate_source": exchange["source"],
+        "rmb_rate_live": exchange["live"],
+    })
+    return result
+
+
+@router.post("/moxing/topups", summary="登记墨行充值（不可修改；错账用调整项冲正）")
+async def moxing_topup(payload: MoxingMoneyIn, admin: dict = Depends(require_admin)):
+    try:
+        return await moxing_acct.add_funds(
+            amount=payload.amount, currency=payload.currency, entry_type="topup",
+            admin_id=int(admin["id"]), reference=payload.reference, note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/moxing/adjustments", summary="登记墨行余额调整（正数增加、负数减少）")
+async def moxing_adjustment(payload: MoxingMoneyIn, admin: dict = Depends(require_admin)):
+    try:
+        return await moxing_acct.add_funds(
+            amount=payload.amount, currency=payload.currency, entry_type="adjustment",
+            admin_id=int(admin["id"]), reference=payload.reference, note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/moxing/snapshots", summary="登记墨行后台余额快照用于差异核对")
+async def moxing_snapshot(payload: MoxingSnapshotIn, admin: dict = Depends(require_admin)):
+    try:
+        return await moxing_acct.add_balance_snapshot(
+            amount=payload.amount, currency=payload.currency, as_of=payload.as_of,
+            admin_id=int(admin["id"]), note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/moxing/terms/{model}", summary="调整墨行商务成本折扣与本站销售折扣")
+async def moxing_terms(model: str, payload: MoxingTermsIn, admin: dict = Depends(require_admin)):
+    try:
+        return await moxing_acct.update_terms(
+            model=model, display_name=payload.display_name,
+            official_input=payload.official_input_usd_per_million,
+            official_output=payload.official_output_usd_per_million,
+            official_cache_read=payload.official_cache_read_usd_per_million,
+            official_cache_write=payload.official_cache_write_usd_per_million,
+            supplier_multiplier=payload.supplier_multiplier,
+            sale_multiplier=payload.sale_multiplier,
+            admin_id=int(admin["id"]),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 # ============================== 上游 slot / 容器 ==============================

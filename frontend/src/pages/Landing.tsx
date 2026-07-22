@@ -1,13 +1,15 @@
 import { useI18n, LangToggle, type TKey } from '../i18n'
 import { BRAND } from '../brand'
+import { publicApi } from '../api'
+import { useAsync } from '../components/common'
 
 // 官网价（每百万 token，美元）与本站倍率。Kimi K3 因资源短缺按原价供应。
-const PRICES: Array<{ model: string; in: number; out: number; multiplier: number; noteKey?: TKey }> = [
+const PRICES: Array<{ model: string; in: number; out: number; multiplier: number; noteKey?: TKey; managed?: boolean }> = [
   { model: 'claude-opus-4-8', in: 5, out: 25, multiplier: 0.8 },
   { model: 'claude-sonnet-5', in: 3, out: 15, multiplier: 0.8 },
   { model: 'claude-fable-5', in: 10, out: 50, multiplier: 0.8 },
-  { model: 'glm-5.2', in: 1.4, out: 4.4, multiplier: 0.8, noteKey: 'pricing_glm_note' },
-  { model: 'kimi-k3', in: 3, out: 15, multiplier: 1, noteKey: 'pricing_kimi_note' },
+  { model: 'glm-5.2', in: 1.4, out: 4.4, multiplier: 0.8, managed: true },
+  { model: 'kimi-k3', in: 3, out: 15, multiplier: 1, managed: true },
 ]
 const usd = (n: number) => `$${n.toFixed(2)}`
 
@@ -16,6 +18,18 @@ export function Landing(
   { onAuth: (mode: 'login' | 'register') => void; loggedIn?: boolean; onEnter?: () => void }
 ) {
   const { t } = useI18n()
+  const livePrices = useAsync(() => publicApi.prices(), [])
+  const prices = PRICES.map((item) => {
+    if (!item.managed) return item
+    const row = (livePrices.data || []).find((candidate: any) => candidate.model === item.model)
+    if (!row?.supplier_managed) return item
+    return {
+      ...item,
+      in: Number(row.official_input_micro_usd_per_1k || 0) / 1000,
+      out: Number(row.official_output_micro_usd_per_1k || 0) / 1000,
+      multiplier: Number(row.sale_multiplier || 0),
+    }
+  })
   return (
     <div className="lp">
       {/* 顶栏 */}
@@ -69,10 +83,13 @@ export function Landing(
               </tr>
             </thead>
             <tbody>
-              {PRICES.map((p) => (
+              {prices.map((p) => (
                 <tr key={p.model}>
                   <td>
                     <span className="ak-mono">{p.model}</span>
+                    {p.managed && <div className="ak-muted" style={{ fontSize: 11 }}>
+                      {t('pricing_sale_discount').replace('{discount}', (p.multiplier * 10).toFixed(1))}
+                    </div>}
                     {p.noteKey && <div className="ak-muted" style={{ fontSize: 11 }}>{t(p.noteKey)}</div>}
                   </td>
                   <td>

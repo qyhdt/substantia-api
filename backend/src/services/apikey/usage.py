@@ -67,6 +67,7 @@ async def record_and_charge(
     status_str: str = "ok",
     error_code: Optional[str] = None,
     request_id: Optional[str] = None,
+    upstream_model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """算成本 → 扣用户余额 + 累加 key 花费 + 写 usage 日志（一个事务）。返回 {cost_micro_usd, ...}。
 
@@ -81,6 +82,7 @@ async def record_and_charge(
     )
     # 应用用户价格系数：实扣 = 模型价 × 系数（1.0=原价 / 0.5=五折 / 1.3=上浮）。
     # round() 为 round-half-to-even，与 Go pyRound 一致。
+    mult = 1.0
     if cost > 0:
         from services.apikey.users import user_price_multiplier
         mult = await user_price_multiplier(user_id)
@@ -89,6 +91,8 @@ async def record_and_charge(
             if cost < 0:
                 cost = 0
 
+    from_trial = from_paid = 0
+    supplier_entry = None
     async with db_util.transaction() as conn:
         if cost > 0:
             # 先扣试用桶（有效时），再扣实付桶。行级锁防并发扣费。
@@ -115,27 +119,50 @@ async def record_and_charge(
             await conn.execute(
                 "UPDATE ak_api_keys SET last_used_at = now() WHERE id = $1", api_key_id
             )
-        await conn.execute(
+        usage_row = await conn.fetchrow(
             """
             INSERT INTO ak_usage_logs
                 (api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens,
-                 total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                 total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id,
+                 user_multiplier, charged_paid_micro_usd, charged_trial_micro_usd)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            RETURNING id
             """,
             api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens,
             total_tokens, cost, latency_ms, attempts, status_str, error_code, request_id,
+            mult, from_paid, from_trial,
+        )
+        from services.apikey import moxing_accounting
+        supplier_entry = await moxing_accounting.record_usage(
+            conn,
+            usage_log_id=int(usage_row["id"]),
+            slot_id=slot_id,
+            public_model=model,
+            upstream_model=upstream_model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            request_id=request_id,
+            user_multiplier=mult,
+            request_status=status_str,
         )
     return {
         "cost_micro_usd": cost,
         "total_tokens": total_tokens,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
+        "charged_paid_micro_usd": from_paid,
+        "charged_trial_micro_usd": from_trial,
+        **(supplier_entry or {}),
     }
 
 
 async def usage_for_key(api_key_id: int, user_id: int, limit: int = 100) -> List[Dict[str, Any]]:
     rows = await db_util.fetch(
-        "SELECT * FROM ak_usage_logs WHERE api_key_id = $1 AND user_id = $2 "
+        "SELECT id, api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens, "
+        "total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id, created_at "
+        "FROM ak_usage_logs WHERE api_key_id = $1 AND user_id = $2 "
         "ORDER BY created_at DESC LIMIT $3",
         api_key_id, user_id, limit,
     )
@@ -156,7 +183,9 @@ async def usage_for_user(
             user_id, days,
         )
         rows = await db_util.fetch(
-            "SELECT * FROM ak_usage_logs WHERE user_id = $1 "
+            "SELECT id, api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens, "
+            "total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id, created_at "
+            "FROM ak_usage_logs WHERE user_id = $1 "
             "AND created_at >= now() - ($2::int * interval '1 day') "
             "ORDER BY created_at DESC LIMIT $3 OFFSET $4",
             user_id, days, limit, offset,
@@ -164,7 +193,9 @@ async def usage_for_user(
     else:
         total = await db_util.fetchval("SELECT count(*) FROM ak_usage_logs WHERE user_id = $1", user_id)
         rows = await db_util.fetch(
-            "SELECT * FROM ak_usage_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            "SELECT id, api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens, "
+            "total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id, created_at "
+            "FROM ak_usage_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             user_id, limit, offset,
         )
     return {"items": [dict(r) for r in rows], "total": int(total or 0)}
