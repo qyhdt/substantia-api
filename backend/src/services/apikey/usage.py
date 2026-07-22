@@ -217,7 +217,7 @@ async def usage_for_user(
 
 
 async def billing_summary(user_id: int, days: int = 7) -> Dict[str, Any]:
-    """用户账单聚合：总览、按日与按模型；中国模型单列以便前端展示人民币。"""
+    """用户账单聚合：总览、按日、按模型与按渠道。"""
     days = max(1, min(int(days), 365))
     china = "lower(model) ~ '^(glm|kimi|qwen|deepseek|doubao|ernie|baichuan)'"
     total = await db_util.fetchrow(
@@ -247,6 +247,15 @@ async def billing_summary(user_id: int, days: int = 7) -> Dict[str, Any]:
         "GROUP BY model ORDER BY cost DESC NULLS LAST",
         user_id, days,
     )
+    by_slot = await db_util.fetch(
+        "SELECT slot_id, count(*) AS calls, coalesce(sum(prompt_tokens), 0) AS prompt_tokens, "
+        "coalesce(sum(completion_tokens), 0) AS completion_tokens, "
+        "coalesce(sum(total_tokens), 0) AS tokens, coalesce(sum(cost_micro_usd), 0) AS cost "
+        "FROM ak_usage_logs WHERE user_id = $1 "
+        "AND created_at >= now() - ($2::int * interval '1 day') "
+        "GROUP BY slot_id ORDER BY cost DESC NULLS LAST",
+        user_id, days,
+    )
     return {
         "days": days,
         "total_calls": int(total["calls"] or 0),
@@ -258,6 +267,7 @@ async def billing_summary(user_id: int, days: int = 7) -> Dict[str, Any]:
             {**dict(row), "currency": "cny" if is_china_model(row["model"]) else "usd"}
             for row in by_model
         ],
+        "by_slot": [dict(row) for row in by_slot],
     }
 
 
