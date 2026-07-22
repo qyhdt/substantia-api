@@ -419,7 +419,11 @@ function Bills() {
               </div>
               <div className="ak-billing-stat"><span>{t('billing_calls')}</span><b>{fmtCount(data.total_calls)}</b></div>
               <div className="ak-billing-stat"><span>{t('billing_tokens')}</span><b>{fmtCount(data.total_tokens)}</b></div>
-              <div className="ak-billing-stat"><span>{t('billing_exchange_rate')}</span><b>1 USD ≈ {rate} CNY</b></div>
+              <div className="ak-billing-stat">
+                <span>{t('billing_exchange_rate')}</span>
+                <b>1 USD ≈ {rate.toFixed(4)} CNY</b>
+                <small>{data.rmb_rate_live ? `${data.rmb_rate_source} · ${data.rmb_rate_date || 'latest'}` : t('exchange_rate_fallback')}</small>
+              </div>
             </div>
 
             <div className="ak-billing-panels">
@@ -525,6 +529,10 @@ function Prices() {
   return (
     <Card title={t('card_prices')}>
       <p className="ak-muted" style={{ marginTop: 0 }}>{t('prices_note')}</p>
+      <p className="ak-muted" style={{ marginTop: -6, fontSize: 12 }}>
+        {t('billing_exchange_rate')}: 1 USD ≈ {rmbPerUsd.toFixed(4)} CNY
+        {config.data?.rmb_rate_live ? ` · ${config.data.rmb_rate_source} · ${config.data.rmb_rate_date || 'latest'}` : ` · ${t('exchange_rate_fallback')}`}
+      </p>
       <Async state={state}>{(rows: any[]) => {
         const byId: Record<string, any> = Object.fromEntries(rows.map((r) => [r.model, r]))
         const list = PRICE_MODELS.map((meta) => {
@@ -621,7 +629,10 @@ function Wallet() {
             </div>
             <div className="ak-wallet-stat"><span>{t('wallet_paid')}</span><b>{fmtUsd(me.paid_micro_usd)}</b></div>
             <div className="ak-wallet-stat"><span>{t('wallet_trial')}</span><b>{fmtUsd(me.trial_active ? me.trial_micro_usd : 0)}</b></div>
-            <div className="ak-wallet-stat"><span>{t('wallet_model_currency')}</span><b>GLM / Kimi · CNY</b><small>Claude / GPT · USD</small></div>
+            <div className="ak-wallet-stat">
+              <span>{t('wallet_model_currency')}</span><b>GLM / Kimi · CNY</b>
+              <small>1 USD ≈ {Number(rmbPerUsd).toFixed(4)} CNY</small>
+            </div>
           </div>
         )}</Async>
       </Card>
@@ -659,7 +670,10 @@ function Wallet() {
         {method === 'xunhupay' && (
           <div style={{ marginTop: 8, fontSize: 13 }}>
             {t('xunhupay_charge')} <b>¥{rmb}</b>
-            <span className="ak-muted" style={{ marginLeft: 6, fontSize: 12 }}>(1 USD ≈ {rmbPerUsd} CNY)</span>
+            <span className="ak-muted" style={{ marginLeft: 6, fontSize: 12 }}>
+              (1 USD ≈ {Number(rmbPerUsd).toFixed(4)} CNY
+              {enabled.data?.rmb_rate_live ? ` · ${enabled.data.rmb_rate_source} · ${enabled.data.rmb_rate_date || 'latest'}` : ` · ${t('exchange_rate_fallback')}`})
+            </span>
           </div>
         )}
         <div className="ak-muted" style={{ marginTop: 8, fontSize: 12 }}>

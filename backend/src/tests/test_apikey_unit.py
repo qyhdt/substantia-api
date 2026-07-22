@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """APIKey 分发的纯逻辑单测（无需 DB / docker）。"""
+import pytest
+
 from controller.gateway import _build_prompt, _safe_uid, _text_of, MessagesIn
 from security.api_key_auth import KEY_PREFIX, generate_key, hash_key
 from services.apikey import to_micro, usd
@@ -246,6 +248,51 @@ def test_china_model_currency_classification():
     assert not is_china_model("claude-opus-4-8")
     assert not is_china_model("gpt-5.4")
     assert not is_china_model(None)
+
+
+@pytest.mark.asyncio
+async def test_live_usd_cny_rate_is_parsed_and_cached(monkeypatch):
+    from services.apikey import fx
+
+    calls = 0
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"date": "2026-07-21", "base": "USD", "quote": "CNY", "rate": 6.7648}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, _url):
+            nonlocal calls
+            calls += 1
+            return Response()
+
+    monkeypatch.setattr(fx.httpx, "AsyncClient", lambda **_kwargs: Client())
+    fx.clear_cache()
+    first = await fx.current_usd_cny()
+    second = await fx.current_usd_cny()
+    fx.clear_cache()
+
+    assert first == second
+    assert first == {"rate": 6.7648, "date": "2026-07-21", "source": "Frankfurter", "live": True}
+    assert calls == 1
+
+
+def test_usd_cny_rate_rejects_bad_data():
+    from services.apikey.fx import _parse_rate
+
+    with pytest.raises(ValueError):
+        _parse_rate({"rate": 0})
+    with pytest.raises(ValueError):
+        _parse_rate({"rate": 99})
 
 
 def test_shell_exec_claude_keeps_prompt_off_argv():

@@ -8,7 +8,7 @@
   - 异步通知 POST 表单，status=='OD' 为已支付；验签为 MD5(sorted(k=v&...)+appsecret)。回纯文本 success。
 
 金额口径：用户仍按「美元」下单（余额是 micro-USD），落库 amount_micro_usd = usd*1e6；
-向虎皮椒收人民币 rmb = usd * XUNHUPAY_RMB_PER_USD（另存 amount_rmb 便于对账）。
+向虎皮椒收人民币 rmb = usd * 当前 USD/CNY 参考汇率（另存 amount_rmb 便于对账）。
 到账时按 amount_micro_usd(+赠送) 加余额，全站计价口径不变。
 
 幂等：ak_payments.out_trade_no 唯一；只在 pending→paid 这一跳里加余额。
@@ -76,7 +76,9 @@ async def create_checkout(user_id: int, usd: float) -> dict:
 
     otn = _new_out_trade_no(user_id)
     micro = int(round(usd * 1_000_000))
-    rmb = round(usd * _rmb_per_usd(), 2)
+    from services.apikey import fx
+    exchange = await fx.current_usd_cny()
+    rmb = round(usd * float(exchange["rate"]), 2)
     await db_util.execute(
         "INSERT INTO ak_payments (user_id, provider, out_trade_no, amount_micro_usd, amount_rmb) "
         "VALUES ($1, 'xunhupay', $2, $3, $4)",
@@ -103,7 +105,10 @@ async def create_checkout(user_id: int, usd: float) -> dict:
         if str(j.get("errcode")) != "0" or not j.get("url"):
             log.warning("xunhupay checkout failed: %s", str(j)[:400])
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, "创建支付失败，请稍后再试")
-        return {"url": j["url"], "out_trade_no": otn}
+        return {
+            "url": j["url"], "out_trade_no": otn,
+            "rmb_per_usd": exchange["rate"], "rate_date": exchange["date"],
+        }
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001

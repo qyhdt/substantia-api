@@ -116,8 +116,13 @@ async def my_usage(
 
 @router.get("/billing/summary", summary="我的账单聚合（总览 / 按日 / 按模型）")
 async def my_billing_summary(days: int = 7, user: dict = Depends(current_user)):
+    from services.apikey import fx
     result = await usage_svc.billing_summary(_uid(user), days)
-    result["rmb_per_usd"] = xunhupay_svc._rmb_per_usd()
+    exchange = await fx.current_usd_cny()
+    result["rmb_per_usd"] = exchange["rate"]
+    result["rmb_rate_date"] = exchange["date"]
+    result["rmb_rate_source"] = exchange["source"]
+    result["rmb_rate_live"] = exchange["live"]
     return result
 
 
@@ -150,8 +155,10 @@ async def upload_proof(file: UploadFile = File(...), user: dict = Depends(curren
 # ---------- 自助充值（Polar 信用卡 / 虎皮椒 微信·支付宝）----------
 @router.get("/recharge/enabled", summary="充值渠道是否可用 + 赠送档")
 async def recharge_enabled():
+    from services.apikey import fx
     polar_on = payments_svc.configured()
     xunhupay_on = xunhupay_svc.configured()
+    exchange = await fx.current_usd_cny()
     methods = []
     if polar_on:
         methods.append({"id": "polar", "currency": "usd", "label_zh": "信用卡", "label_en": "Credit Card"})
@@ -163,7 +170,10 @@ async def recharge_enabled():
         "xunhupay_enabled": xunhupay_on,
         "methods": methods,
         "bonus_tiers": payments_svc.bonus_tiers(),
-        "rmb_per_usd": xunhupay_svc._rmb_per_usd(),
+        "rmb_per_usd": exchange["rate"],
+        "rmb_rate_date": exchange["date"],
+        "rmb_rate_source": exchange["source"],
+        "rmb_rate_live": exchange["live"],
     }
 
 
