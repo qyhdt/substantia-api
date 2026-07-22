@@ -200,7 +200,7 @@ async def list_for_user(user_id: int, limit: int = 50, offset: int = 0) -> dict:
     offset = max(0, int(offset))
     total = await db_util.fetchval("SELECT count(*) FROM ak_payments WHERE user_id = $1", user_id)
     rows = await db_util.fetch(
-        "SELECT id, provider, out_trade_no, amount_micro_usd, status, created_at, paid_at "
+        "SELECT id, provider, out_trade_no, amount_micro_usd, amount_rmb, status, created_at, paid_at "
         "FROM ak_payments WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
         user_id, limit, offset,
     )

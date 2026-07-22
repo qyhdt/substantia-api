@@ -16,6 +16,16 @@ from utils.pm_logger import get_app_logger
 
 log = get_app_logger()
 
+_CHINA_MODEL_PREFIXES = (
+    "glm", "kimi", "qwen", "deepseek", "doubao", "ernie", "baichuan",
+)
+
+
+def is_china_model(model: str | None) -> bool:
+    """账单展示币种归类；实际扣费仍统一使用 micro-USD。"""
+    name = (model or "").strip().lower()
+    return any(name.startswith(prefix) for prefix in _CHINA_MODEL_PREFIXES)
+
 
 def precheck(key: Dict[str, Any], user: Dict[str, Any], model: str) -> None:
     """网关请求前置校验：有效余额>0、key 未超封顶、模型在白名单。失败抛 402/403。
@@ -132,16 +142,77 @@ async def usage_for_key(api_key_id: int, user_id: int, limit: int = 100) -> List
     return [dict(r) for r in rows]
 
 
-async def usage_for_user(user_id: int, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+async def usage_for_user(
+    user_id: int, limit: int = 50, offset: int = 0, days: int | None = None,
+) -> Dict[str, Any]:
     """分页：返回 {items, total}。"""
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
-    total = await db_util.fetchval("SELECT count(*) FROM ak_usage_logs WHERE user_id = $1", user_id)
-    rows = await db_util.fetch(
-        "SELECT * FROM ak_usage_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
-        user_id, limit, offset,
-    )
+    if days is not None:
+        days = max(1, min(int(days), 365))
+        total = await db_util.fetchval(
+            "SELECT count(*) FROM ak_usage_logs WHERE user_id = $1 "
+            "AND created_at >= now() - ($2::int * interval '1 day')",
+            user_id, days,
+        )
+        rows = await db_util.fetch(
+            "SELECT * FROM ak_usage_logs WHERE user_id = $1 "
+            "AND created_at >= now() - ($2::int * interval '1 day') "
+            "ORDER BY created_at DESC LIMIT $3 OFFSET $4",
+            user_id, days, limit, offset,
+        )
+    else:
+        total = await db_util.fetchval("SELECT count(*) FROM ak_usage_logs WHERE user_id = $1", user_id)
+        rows = await db_util.fetch(
+            "SELECT * FROM ak_usage_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            user_id, limit, offset,
+        )
     return {"items": [dict(r) for r in rows], "total": int(total or 0)}
+
+
+async def billing_summary(user_id: int, days: int = 7) -> Dict[str, Any]:
+    """用户账单聚合：总览、按日与按模型；中国模型单列以便前端展示人民币。"""
+    days = max(1, min(int(days), 365))
+    china = "lower(model) ~ '^(glm|kimi|qwen|deepseek|doubao|ernie|baichuan)'"
+    total = await db_util.fetchrow(
+        "SELECT count(*) AS calls, coalesce(sum(total_tokens), 0) AS tokens, "
+        f"coalesce(sum(cost_micro_usd) FILTER (WHERE {china}), 0) AS china_cost, "
+        f"coalesce(sum(cost_micro_usd) FILTER (WHERE NOT ({china})), 0) AS overseas_cost "
+        "FROM ak_usage_logs WHERE user_id = $1 "
+        "AND created_at >= now() - ($2::int * interval '1 day')",
+        user_id, days,
+    )
+    daily = await db_util.fetch(
+        "SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS day, count(*) AS calls, "
+        "coalesce(sum(total_tokens), 0) AS tokens, "
+        f"coalesce(sum(cost_micro_usd) FILTER (WHERE {china}), 0) AS china_cost, "
+        f"coalesce(sum(cost_micro_usd) FILTER (WHERE NOT ({china})), 0) AS overseas_cost "
+        "FROM ak_usage_logs WHERE user_id = $1 "
+        "AND created_at >= now() - ($2::int * interval '1 day') "
+        "GROUP BY day ORDER BY day DESC",
+        user_id, days,
+    )
+    by_model = await db_util.fetch(
+        "SELECT model, count(*) AS calls, coalesce(sum(prompt_tokens), 0) AS prompt_tokens, "
+        "coalesce(sum(completion_tokens), 0) AS completion_tokens, "
+        "coalesce(sum(total_tokens), 0) AS tokens, coalesce(sum(cost_micro_usd), 0) AS cost "
+        "FROM ak_usage_logs WHERE user_id = $1 "
+        "AND created_at >= now() - ($2::int * interval '1 day') "
+        "GROUP BY model ORDER BY cost DESC NULLS LAST",
+        user_id, days,
+    )
+    return {
+        "days": days,
+        "total_calls": int(total["calls"] or 0),
+        "total_tokens": int(total["tokens"] or 0),
+        "china_cost_micro_usd": int(total["china_cost"] or 0),
+        "overseas_cost_micro_usd": int(total["overseas_cost"] or 0),
+        "daily": [dict(row) for row in daily],
+        "by_model": [
+            {**dict(row), "currency": "cny" if is_china_model(row["model"]) else "usd"}
+            for row in by_model
+        ],
+    }
 
 
 async def user_spend_summary(user_id: int) -> Dict[str, Any]:

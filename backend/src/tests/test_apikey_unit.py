@@ -236,6 +236,18 @@ def test_estimate_tokens():
     assert _estimate_tokens("abcd" * 10) == 10
 
 
+def test_china_model_currency_classification():
+    from services.apikey.usage import is_china_model
+
+    assert is_china_model("glm-5.2")
+    assert is_china_model("Kimi-K3")
+    assert is_china_model("qwen-max")
+    assert is_china_model("deepseek-v3")
+    assert not is_china_model("claude-opus-4-8")
+    assert not is_china_model("gpt-5.4")
+    assert not is_china_model(None)
+
+
 def test_shell_exec_claude_keeps_prompt_off_argv():
     from services.claude.docker_manager import shell_exec_claude, _PROMPT_FILE
 
