@@ -612,7 +612,7 @@ function Bills() {
             <div className="ak-billing-stats">
               <div className="ak-billing-stat featured">
                 <span>{t('billing_total_cost')}</span>
-                <b>{fmtDisplayCurrency(totalCost, currency, rate, 4)}</b>
+                <b>{fmtDisplayCurrency(totalCost, currency, rate)}</b>
                 <small>{t('billing_currency_note')}</small>
               </div>
               <div className="ak-billing-stat"><span>{t('billing_calls')}</span><b>{fmtCount(data.total_calls)}</b></div>

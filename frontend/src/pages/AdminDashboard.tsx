@@ -425,19 +425,19 @@ function Prices() {
                     <td>{e
                       ? <input className="ak-input" type="number" step="0.0001" value={Number((e.input * factor).toFixed(6))} style={{ width: 110, minWidth: 0 }}
                           onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, input: Number(ev.target.value) / factor } })} />
-                      : fmtDisplayCurrency(Number(p.input_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, currency === 'rmb' ? 2 : 4)}</td>
+                      : fmtDisplayCurrency(Number(p.input_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, 2)}</td>
                     <td>{e
                       ? <input className="ak-input" type="number" step="0.0001" value={Number((e.output * factor).toFixed(6))} style={{ width: 110, minWidth: 0 }}
                           onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, output: Number(ev.target.value) / factor } })} />
-                      : fmtDisplayCurrency(Number(p.output_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, currency === 'rmb' ? 2 : 4)}</td>
+                      : fmtDisplayCurrency(Number(p.output_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, 2)}</td>
                     <td>{e
                       ? <input className="ak-input" type="number" step="0.0001" value={Number((e.cacheRead * factor).toFixed(6))} style={{ width: 110, minWidth: 0 }}
                           onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, cacheRead: Number(ev.target.value) / factor } })} />
-                      : fmtDisplayCurrency(Number(p.cache_read_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, currency === 'rmb' ? 2 : 4)}</td>
+                      : fmtDisplayCurrency(Number(p.cache_read_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, 2)}</td>
                     <td>{e
                       ? <input className="ak-input" type="number" step="0.0001" value={Number((e.cacheWrite * factor).toFixed(6))} style={{ width: 110, minWidth: 0 }}
                           onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, cacheWrite: Number(ev.target.value) / factor } })} />
-                      : fmtDisplayCurrency(Number(p.cache_write_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, currency === 'rmb' ? 2 : 4)}</td>
+                      : fmtDisplayCurrency(Number(p.cache_write_micro_usd_per_1k || 0) * 1000, currency, rmbPerUsd, 2)}</td>
                     <td>{p.supplier_managed
                       ? <Pill kind="warn">{t('admin_supplier_managed')}</Pill>
                       : <a className="ak-link" style={{ cursor: 'pointer' }} onClick={() => toggleEnabled(p)}>
@@ -1205,7 +1205,7 @@ function DailySpendChart({ rows, previousRows, currency, rmbPerUsd }: { rows: an
         <polyline points={points} className="ak-chart-line" />
         {data.map((row, index) => (
           <g key={row.day}>
-            <circle cx={xAt(index)} cy={yAt(row.value)} r="4" className="ak-chart-point"><title>{row.day} · {symbol}{row.value.toFixed(4)}</title></circle>
+            <circle cx={xAt(index)} cy={yAt(row.value)} r="4" className="ak-chart-point"><title>{row.day} · {symbol}{row.value.toFixed(2)}</title></circle>
             {(index % labelEvery === 0 || index === data.length - 1) &&
               <text x={xAt(index)} y={height - 14} textAnchor="middle" className="ak-chart-label">{row.day.slice(5)}</text>}
           </g>

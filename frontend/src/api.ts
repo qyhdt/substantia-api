@@ -169,7 +169,7 @@ export const admin = {
   codexLoginCancel: (session_id: string) => api.post('/admin/codex/login/cancel', { session_id }),
 }
 
-export const fmtUsd = (micro: number | null | undefined) => `$${((micro || 0) / 1e6).toFixed(4)}`
+export const fmtUsd = (micro: number | null | undefined) => `$${((micro || 0) / 1e6).toFixed(2)}`
 
 export const RMB_PER_USD_FALLBACK = 7.2
 
@@ -183,7 +183,7 @@ export const isChinaModel = (model: string | null | undefined) => {
 export const fmtCnyFromMicroUsd = (
   micro: number | null | undefined,
   rate = RMB_PER_USD_FALLBACK,
-  digits = 4,
+  digits = 2,
 ) => `¥${(((micro || 0) / 1e6) * rate).toFixed(digits)}`
 
 export const fmtModelCost = (
