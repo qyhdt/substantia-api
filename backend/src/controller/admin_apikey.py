@@ -223,8 +223,8 @@ async def upsert_price(payload: PriceIn):
 
 # ============================== 用量看板 ==============================
 @router.get("/usage/summary", summary="用量看板聚合")
-async def usage_summary():
-    result = await usage_svc.admin_summary()
+async def usage_summary(days: int = 7):
+    result = await usage_svc.admin_summary(days=days)
     exchange = await fx.current_usd_cny()
     result.update({
         "rmb_per_usd": exchange["rate"],

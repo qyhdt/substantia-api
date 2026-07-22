@@ -242,23 +242,41 @@ async def user_spend_summary(user_id: int) -> Dict[str, Any]:
     }
 
 
-async def admin_summary(limit: int = 500) -> Dict[str, Any]:
-    """看板聚合：按 user / model / slot 汇总 token + 花费。"""
+async def admin_summary(limit: int = 500, days: int = 7) -> Dict[str, Any]:
+    """管理看板：按选定天数返回趋势、日账单及各维度汇总。"""
+    days = max(1, min(int(days), 365))
+    china = "lower(model) ~ '^(glm|kimi|qwen|deepseek|doubao|ernie|baichuan)'"
     by_model = await db_util.fetch(
         "SELECT model, count(*) AS calls, sum(total_tokens) AS tokens, sum(cost_micro_usd) AS cost "
-        "FROM ak_usage_logs GROUP BY model ORDER BY cost DESC NULLS LAST"
+        "FROM ak_usage_logs WHERE created_at >= now() - ($1::int * interval '1 day') "
+        "GROUP BY model ORDER BY cost DESC NULLS LAST",
+        days,
     )
     by_user = await db_util.fetch(
         "SELECT u.email, count(*) AS calls, sum(l.total_tokens) AS tokens, sum(l.cost_micro_usd) AS cost "
         "FROM ak_usage_logs l JOIN ak_users u ON u.id = l.user_id "
-        "GROUP BY u.email ORDER BY cost DESC NULLS LAST LIMIT $1",
-        limit,
+        "WHERE l.created_at >= now() - ($1::int * interval '1 day') "
+        "GROUP BY u.email ORDER BY cost DESC NULLS LAST LIMIT $2",
+        days, limit,
     )
     by_slot = await db_util.fetch(
         "SELECT slot_id, count(*) AS calls, sum(total_tokens) AS tokens, sum(cost_micro_usd) AS cost "
-        "FROM ak_usage_logs GROUP BY slot_id ORDER BY cost DESC NULLS LAST"
+        "FROM ak_usage_logs WHERE created_at >= now() - ($1::int * interval '1 day') "
+        "GROUP BY slot_id ORDER BY cost DESC NULLS LAST",
+        days,
+    )
+    daily = await db_util.fetch(
+        "SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS day, count(*) AS calls, "
+        "coalesce(sum(total_tokens), 0) AS tokens, "
+        f"coalesce(sum(cost_micro_usd) FILTER (WHERE {china}), 0) AS china_cost, "
+        f"coalesce(sum(cost_micro_usd) FILTER (WHERE NOT ({china})), 0) AS overseas_cost "
+        "FROM ak_usage_logs WHERE created_at >= now() - ($1::int * interval '1 day') "
+        "GROUP BY day ORDER BY day DESC",
+        days,
     )
     return {
+        "days": days,
+        "daily": [dict(r) for r in daily],
         "by_model": [dict(r) for r in by_model],
         "by_user": [dict(r) for r in by_user],
         "by_slot": [dict(r) for r in by_slot],

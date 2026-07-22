@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { admin, fmtModelCost, fmtUsd, isChinaModel, RMB_PER_USD_FALLBACK } from '../api'
+import { admin, fmtUsd, RMB_PER_USD_FALLBACK } from '../api'
 import { Async, Card, Pill, useAsync } from '../components/common'
 import { readParam, pushParams, hrefFor } from '../nav'
 import { useI18n, type TKey } from '../i18n'
+import { fmtDisplayCurrency, useDisplayCurrency, type DisplayCurrency } from '../currency'
 
 const fmtTime = (t?: string | null) => (t ? new Date(t).toLocaleString() : '—')
+const fmtCount = (value: any) => new Intl.NumberFormat().format(Number(value || 0))
 
 const TABS = [
   ['topups', 'admin_tab_topups'],
@@ -236,32 +238,40 @@ function Users() {
 
 function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => void }) {
   const { t } = useI18n()
+  const [currency, setCurrency] = useDisplayCurrency()
   const state = useAsync(() => admin.userDetail(userId), [userId])
   return (
     <div className="ak-modal-overlay" onClick={onClose}>
       <div className="ak-modal" onClick={(e) => e.stopPropagation()}>
         <div className="ak-row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>{t('admin_user_detail_title')}</h3>
-          <button className="ak-btn" onClick={onClose}>{t('admin_close')}</button>
+          <div className="ak-row" style={{ gap: 6 }}>
+            {(['usd', 'rmb'] as const).map((value) => (
+              <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
+                onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
+            ))}
+            <button className="ak-btn" onClick={onClose}>{t('admin_close')}</button>
+          </div>
         </div>
         <Async state={state}>{(d: any) => {
           const u = d.user || {}
           const s = d.spend || {}
           const rmbPerUsd = Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)
+          const money = (value: any) => fmtDisplayCurrency(value, currency, rmbPerUsd)
           return (
             <>
               <div className="ak-detail-grid">
                 <div><span className="ak-muted">{t('admin_col_email')}</span><b>{u.email}</b></div>
                 <div><span className="ak-muted">{t('admin_role_status')}</span><b>{u.role} / {u.status}</b></div>
-                <div><span className="ak-muted">{t('admin_effective_balance')}</span><b className="ak-balance">{fmtUsd(u.effective_micro_usd)}</b></div>
-                <div><span className="ak-muted">{t('admin_paid_bucket')}</span><b>{fmtUsd(u.paid_micro_usd)}</b></div>
+                <div><span className="ak-muted">{t('admin_effective_balance')}</span><b className="ak-balance">{money(u.effective_micro_usd)}</b></div>
+                <div><span className="ak-muted">{t('admin_paid_bucket')}</span><b>{money(u.paid_micro_usd)}</b></div>
                 <div><span className="ak-muted">{t('admin_trial_bucket')}{u.trial_active ? t('admin_trial_valid') : t('admin_trial_invalid')}</span>
-                  <b>{fmtUsd(u.trial_micro_usd)}{u.trial_expires_at ? ` · ${t('admin_until')} ${new Date(u.trial_expires_at).toLocaleDateString()}` : ''}</b></div>
+                  <b>{money(u.trial_micro_usd)}{u.trial_expires_at ? ` · ${t('admin_until')} ${new Date(u.trial_expires_at).toLocaleDateString()}` : ''}</b></div>
                 <div><span className="ak-muted">{t('admin_registered_at')}</span><b>{fmtTime(u.created_at)}</b></div>
               </div>
 
               <div className="ak-stat-row">
-                <div className="ak-stat"><span className="ak-muted">{t('admin_total_cost')}</span><b className="ak-balance">{fmtUsd(s.total_cost_micro_usd)}</b></div>
+                <div className="ak-stat"><span className="ak-muted">{t('admin_total_cost')}</span><b className="ak-balance">{money(s.total_cost_micro_usd)}</b></div>
                 <div className="ak-stat"><span className="ak-muted">{t('admin_calls')}</span><b>{s.total_calls || 0}</b></div>
                 <div className="ak-stat"><span className="ak-muted">{t('admin_total_tokens')}</span><b>{s.total_tokens || 0}</b></div>
               </div>
@@ -272,11 +282,11 @@ function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => v
                 <tbody>
                   {(s.by_model || []).map((m: any, i: number) => (
                     <tr key={i}>
-                      <td className="ak-mono">{m.model || '—'}<div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(m.model) ? 'CNY' : 'USD'}</div></td>
+                      <td className="ak-mono">{m.model || '—'}</td>
                       <td>{m.calls}</td>
                       <td>{m.prompt_tokens || 0}</td>
                       <td>{m.completion_tokens || 0}</td>
-                      <td>{fmtModelCost(m.model, m.cost, rmbPerUsd)}</td>
+                      <td>{money(m.cost)}</td>
                     </tr>
                   ))}
                   {(s.by_model || []).length === 0 && <tr><td colSpan={5} className="ak-muted">{t('admin_empty_spend')}</td></tr>}
@@ -292,7 +302,7 @@ function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => v
                       <td>{k.name}</td>
                       <td className="ak-mono ak-muted">{k.key_prefix}</td>
                       <td><Pill kind={k.status === 'active' ? 'ok' : 'bad'}>{k.status}</Pill></td>
-                      <td>{fmtUsd(k.spent_micro_usd)}</td>
+                      <td>{money(k.spent_micro_usd)}</td>
                       <td className="ak-muted">{fmtTime(k.last_used_at)}</td>
                     </tr>
                   ))}
@@ -307,10 +317,10 @@ function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => v
                   {(d.recent_usage || []).map((r: any) => (
                     <tr key={r.id}>
                       <td className="ak-muted">{fmtTime(r.created_at)}</td>
-                      <td className="ak-mono">{r.model || '—'}<div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(r.model) ? 'CNY' : 'USD'}</div></td>
+                      <td className="ak-mono">{r.model || '—'}</td>
                       <td className="ak-mono ak-muted">{r.slot_id || '—'}</td>
                       <td>{r.total_tokens || 0}</td>
-                      <td>{fmtModelCost(r.model, r.cost_micro_usd, rmbPerUsd)}</td>
+                      <td>{money(r.cost_micro_usd)}</td>
                       <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status || '—'}</Pill></td>
                     </tr>
                   ))}
@@ -756,24 +766,114 @@ function CodexAccounts() {
 
 function UsageBoard() {
   const { t } = useI18n()
-  const state = useAsync(() => admin.usageSummary(), [])
+  const [currency, setCurrency] = useDisplayCurrency()
+  const [days, setDays] = useState(7)
+  const state = useAsync(() => admin.usageSummary(days), [days])
   return (
     <Async state={state}>{(d: any) => (
       <>
+        <Card title={t('admin_daily_trend')} actions={
+          <div className="ak-row" style={{ gap: 6 }}>
+            {(['usd', 'rmb'] as const).map((value) => (
+              <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
+                onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
+            ))}
+            {[7, 30, 90].map((value) => (
+              <button key={value} className={`ak-btn ${days === value ? 'primary' : ''}`}
+                onClick={() => setDays(value)}>{t(`billing_days_${value}` as TKey)}</button>
+            ))}
+          </div>
+        }>
+          <p className="ak-muted" style={{ marginTop: 0 }}>{t('admin_daily_trend_note')}</p>
+          <DailySpendChart rows={d.daily || []} currency={currency} rmbPerUsd={Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)} />
+        </Card>
+
+        <Card title={t('admin_daily_bill')}>
+          <div className="ak-table-scroll">
+            <table className="ak-table">
+              <thead><tr><th>{t('billing_date')}</th><th>{t('billing_calls')}</th><th>tokens</th><th>{t('col_cost')} ({currency.toUpperCase()})</th></tr></thead>
+              <tbody>
+                {(d.daily || []).map((row: any) => {
+                  const rate = Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)
+                  return (
+                    <tr key={String(row.day)}>
+                      <td>{String(row.day).slice(0, 10)}</td>
+                      <td>{fmtCount(row.calls)}</td>
+                      <td>{fmtCount(row.tokens)}</td>
+                      <td><b>{fmtDisplayCurrency(Number(row.china_cost || 0) + Number(row.overseas_cost || 0), currency, rate)}</b></td>
+                    </tr>
+                  )
+                })}
+                {(d.daily || []).length === 0 && <tr><td colSpan={4} className="ak-muted">{t('admin_empty_data')}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
         <Card title={t('admin_group_model')}>
           <p className="ak-muted" style={{ marginTop: 0 }}>
             {t('admin_model_currency_note')} · 1 USD ≈ {Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK).toFixed(4)} CNY
           </p>
-          <Agg rows={d.by_model} keyCol="model" rmbPerUsd={d.rmb_per_usd} />
+          <Agg rows={d.by_model} keyCol="model" currency={currency} rmbPerUsd={d.rmb_per_usd} />
         </Card>
-        <Card title={t('admin_group_user')}><Agg rows={d.by_user} keyCol="email" /></Card>
-        <Card title={t('admin_group_slot')}><Agg rows={d.by_slot} keyCol="slot_id" /></Card>
+        <Card title={t('admin_group_user')}><Agg rows={d.by_user} keyCol="email" currency={currency} rmbPerUsd={d.rmb_per_usd} /></Card>
+        <Card title={t('admin_group_slot')}><Agg rows={d.by_slot} keyCol="slot_id" currency={currency} rmbPerUsd={d.rmb_per_usd} /></Card>
       </>
     )}</Async>
   )
 }
 
-function Agg({ rows, keyCol, rmbPerUsd = RMB_PER_USD_FALLBACK }: { rows: any[]; keyCol: string; rmbPerUsd?: number }) {
+function DailySpendChart({ rows, currency, rmbPerUsd }: { rows: any[]; currency: DisplayCurrency; rmbPerUsd: number }) {
+  const { t } = useI18n()
+  const data = [...rows].reverse().map((row) => ({
+    day: String(row.day).slice(0, 10),
+    microUsd: Number(row.china_cost || 0) + Number(row.overseas_cost || 0),
+    value: ((Number(row.china_cost || 0) + Number(row.overseas_cost || 0)) / 1e6) * (currency === 'rmb' ? rmbPerUsd : 1),
+  }))
+  if (data.length === 0) return <p className="ak-muted">{t('admin_empty_data')}</p>
+
+  const width = 900
+  const height = 250
+  const left = 62
+  const right = 20
+  const top = 16
+  const bottom = 42
+  const plotWidth = width - left - right
+  const plotHeight = height - top - bottom
+  const max = Math.max(0.01, ...data.map((row) => row.value))
+  const xAt = (index: number) => left + (data.length === 1 ? plotWidth / 2 : index * plotWidth / (data.length - 1))
+  const yAt = (value: number) => top + plotHeight - value / max * plotHeight
+  const points = data.map((row, index) => `${xAt(index)},${yAt(row.value)}`).join(' ')
+  const area = `${xAt(0)},${top + plotHeight} ${points} ${xAt(data.length - 1)},${top + plotHeight}`
+  const labelEvery = Math.max(1, Math.ceil(data.length / 7))
+  const symbol = currency === 'rmb' ? '¥' : '$'
+
+  return (
+    <div className="ak-admin-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('admin_daily_trend')}>
+        {[0, 0.5, 1].map((ratio) => {
+          const y = top + plotHeight * ratio
+          const value = max * (1 - ratio)
+          return <g key={ratio}>
+            <line x1={left} y1={y} x2={width - right} y2={y} className="ak-chart-grid" />
+            <text x={left - 8} y={y + 4} textAnchor="end" className="ak-chart-label">{symbol}{value.toFixed(value >= 100 ? 0 : 2)}</text>
+          </g>
+        })}
+        <polygon points={area} className="ak-chart-area" />
+        <polyline points={points} className="ak-chart-line" />
+        {data.map((row, index) => (
+          <g key={row.day}>
+            <circle cx={xAt(index)} cy={yAt(row.value)} r="4" className="ak-chart-point"><title>{row.day} · {symbol}{row.value.toFixed(4)}</title></circle>
+            {(index % labelEvery === 0 || index === data.length - 1) &&
+              <text x={xAt(index)} y={height - 14} textAnchor="middle" className="ak-chart-label">{row.day.slice(5)}</text>}
+          </g>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+function Agg({ rows, keyCol, currency, rmbPerUsd = RMB_PER_USD_FALLBACK }: { rows: any[]; keyCol: string; currency: DisplayCurrency; rmbPerUsd?: number }) {
   const { t } = useI18n()
   return (
     <table className="ak-table">
@@ -781,13 +881,10 @@ function Agg({ rows, keyCol, rmbPerUsd = RMB_PER_USD_FALLBACK }: { rows: any[]; 
       <tbody>
         {(rows || []).map((r, i) => (
           <tr key={i}>
-            <td className="ak-mono">
-              {r[keyCol] || '—'}
-              {keyCol === 'model' && <div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(r.model) ? 'CNY' : 'USD'}</div>}
-            </td>
+            <td className="ak-mono">{r[keyCol] || '—'}</td>
             <td>{r.calls}</td>
             <td>{r.tokens || 0}</td>
-            <td>{keyCol === 'model' ? fmtModelCost(r.model, r.cost, Number(rmbPerUsd)) : fmtUsd(r.cost)}</td>
+            <td>{fmtDisplayCurrency(r.cost, currency, Number(rmbPerUsd))}</td>
           </tr>
         ))}
         {(rows || []).length === 0 && <tr><td colSpan={4} className="ak-muted">{t('admin_empty_data')}</td></tr>}

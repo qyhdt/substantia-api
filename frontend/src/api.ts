@@ -105,7 +105,7 @@ export const admin = {
   keyStatus: (id: number, status: string) => api.post(`/admin/keys/${id}/status?status=${status}`),
   prices: () => api.get('/admin/model-prices'),
   upsertPrice: (payload: any) => api.post('/admin/model-prices', payload),
-  usageSummary: () => api.get('/admin/usage/summary'),
+  usageSummary: (days = 7) => api.get(`/admin/usage/summary?days=${days}`),
   // 上游 slot / 容器（容器团队接口）
   slots: () => api.get('/admin/claude/slots'),
   upsertSlot: (id: string, payload: any) => api.put(`/admin/claude/slots/${id}`, payload),
