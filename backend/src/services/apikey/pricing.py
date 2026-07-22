@@ -21,7 +21,10 @@ async def list_prices(*, include_supplier_terms: bool = False) -> List[Dict[str,
     rows = await db_util.fetch(
         "SELECT p.*, (t.supplier IS NOT NULL) AS supplier_managed, t.sale_multiplier, "
         "t.official_input_micro_usd_per_1k, t.official_output_micro_usd_per_1k, "
-        f"t.official_cache_read_micro_usd_per_1k, t.official_cache_write_micro_usd_per_1k{private_fields} "
+        "t.official_cache_read_micro_usd_per_1k, t.official_cache_write_micro_usd_per_1k, "
+        "t.official_input_micro_cny_per_million, t.official_output_micro_cny_per_million, "
+        "t.official_cache_read_micro_cny_per_million, t.official_cache_write_micro_cny_per_million, "
+        f"t.pricing_fx_rate{private_fields} "
         "FROM ak_model_prices p LEFT JOIN ak_supplier_model_terms t ON t.model=p.model "
         "AND t.supplier='moxing' ORDER BY p.model"
     )
@@ -103,6 +106,12 @@ async def compute_cost_micro_usd(
     - completion_tokens : 输出（输出价）
     模型无定价 → 记 0 并告警（不阻断用户）。
     """
+    from services.apikey import moxing_accounting
+    managed = await moxing_accounting.sale_cost_micro_usd(
+        model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
+    )
+    if managed is not None:
+        return managed
     price = await get_price(model)
     if not price:
         log.warning("ak_pricing: no price for model=%s, charging 0", model)

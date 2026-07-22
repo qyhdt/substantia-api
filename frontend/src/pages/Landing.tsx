@@ -5,12 +5,12 @@ import { useAsync } from '../components/common'
 import { useDisplayCurrency, useRmbPerUsd } from '../currency'
 
 // 官网价（每百万 token，美元）与本站倍率。Kimi K3 因资源短缺按原价供应。
-const PRICES: Array<{ model: string; in: number; out: number; multiplier: number; noteKey?: TKey; managed?: boolean }> = [
+const PRICES: Array<{ model: string; in: number; out: number; multiplier: number; noteKey?: TKey; managed?: boolean; baseCny?: boolean }> = [
   { model: 'claude-opus-4-8', in: 5, out: 25, multiplier: 0.8 },
   { model: 'claude-sonnet-5', in: 3, out: 15, multiplier: 0.8 },
   { model: 'claude-fable-5', in: 10, out: 50, multiplier: 0.8 },
-  { model: 'glm-5.2', in: 1.4, out: 4.4, multiplier: 0.8, managed: true },
-  { model: 'kimi-k3', in: 3, out: 15, multiplier: 1, managed: true },
+  { model: 'glm-5.2', in: 8, out: 28, multiplier: 0.8, managed: true, baseCny: true },
+  { model: 'kimi-k3', in: 20, out: 100, multiplier: 1, managed: true, baseCny: true },
 ]
 export function Landing(
   { onAuth, loggedIn, onEnter }:
@@ -20,17 +20,17 @@ export function Landing(
   const [currency, setCurrency] = useDisplayCurrency()
   const rmbPerUsd = useRmbPerUsd()
   const livePrices = useAsync(() => publicApi.prices(), [])
-  const money = (usd: number) => currency === 'rmb'
-    ? `¥${Math.round(usd * rmbPerUsd)}`
-    : `$${usd.toFixed(2)}`
+  const money = (amount: number, baseCny = false) => currency === 'rmb'
+    ? `¥${Math.round(baseCny ? amount : amount * rmbPerUsd)}`
+    : `$${(baseCny ? amount / rmbPerUsd : amount).toFixed(2)}`
   const prices = PRICES.map((item) => {
     if (!item.managed) return item
     const row = (livePrices.data || []).find((candidate: any) => candidate.model === item.model)
     if (!row?.supplier_managed) return item
     return {
       ...item,
-      in: Number(row.official_input_micro_usd_per_1k || 0) / 1000,
-      out: Number(row.official_output_micro_usd_per_1k || 0) / 1000,
+      in: Number(row.official_input_micro_cny_per_million || 0) / 1_000_000,
+      out: Number(row.official_output_micro_cny_per_million || 0) / 1_000_000,
       multiplier: Number(row.sale_multiplier || 0),
     }
   })
@@ -103,12 +103,12 @@ export function Landing(
                     {p.noteKey && <div className="ak-muted" style={{ fontSize: 11 }}>{t(p.noteKey)}</div>}
                   </td>
                   <td>
-                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {money(p.in)}</span>{' '}</>}
-                    <b className="lp-now">{money(p.in * p.multiplier)}</b>
+                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {money(p.in, p.baseCny)}</span>{' '}</>}
+                    <b className="lp-now">{money(p.in * p.multiplier, p.baseCny)}</b>
                   </td>
                   <td>
-                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {money(p.out)}</span>{' '}</>}
-                    <b className="lp-now">{money(p.out * p.multiplier)}</b>
+                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {money(p.out, p.baseCny)}</span>{' '}</>}
+                    <b className="lp-now">{money(p.out * p.multiplier, p.baseCny)}</b>
                   </td>
                 </tr>
               ))}

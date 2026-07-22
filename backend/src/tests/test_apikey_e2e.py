@@ -141,11 +141,16 @@ def test_gateway_requires_key(client):
     assert r.status_code == 401
 
 
-def test_moxing_supplier_reconciliation_conserves_both_ledgers(client):
+def test_moxing_supplier_reconciliation_conserves_both_ledgers(client, monkeypatch):
     from services.apikey import moxing_accounting as acct
     from services.apikey import pricing as pricing_svc
     from services.apikey import usage as usage_svc
     from services.apikey import users as users_svc
+    from services.apikey import fx as fx_svc
+
+    async def fixed_fx():
+        return {"rate": 7.0, "date": "2026-07-22", "source": "test", "live": True}
+    monkeypatch.setattr(fx_svc, "current_usd_cny", fixed_fx)
 
     async def _flow():
         created = await users_svc.create_user_by_admin(
@@ -159,8 +164,8 @@ def test_moxing_supplier_reconciliation_conserves_both_ledgers(client):
         )
         await acct.update_terms(
             model="glm-5.2", display_name="GLM 5.2",
-            official_input=Decimal("1.4"), official_output=Decimal("4.4"),
-            official_cache_read=Decimal("0.26"), official_cache_write=Decimal("1.4"),
+            official_input=Decimal("8"), official_output=Decimal("28"),
+            official_cache_read=Decimal("2"), official_cache_write=Decimal("8"),
             supplier_multiplier=Decimal("0.9"), sale_multiplier=Decimal("0.8"),
             admin_id=user_id,
         )
@@ -180,16 +185,17 @@ def test_moxing_supplier_reconciliation_conserves_both_ledgers(client):
         )
 
     billed, user, summary, public_prices, public_usage = _run(_flow())
-    assert billed["cost_micro_usd"] == 1472               # 官网价 × 销售八折
-    assert billed["supplier_cost_micro_usd"] == 1656      # 官网价 × 供应商九折
-    assert billed["charged_paid_micro_usd"] == 1472
+    assert billed["cost_micro_usd"] == 1234               # ¥0.00864 / 7，进入统一美元余额账本
+    assert billed["supplier_cost_micro_cny"] == 9720      # ¥0.0108 × 供应商九折
+    assert billed["charged_paid_micro_usd"] == 1234
     assert billed["charged_trial_micro_usd"] == 0
-    assert user["balance_micro_usd"] == 10_000_000 - 1472
-    assert summary["account"]["balance_micro_usd"] == 10_000_000 - 1656
-    assert summary["ledger_totals"]["internal_variance_micro_usd"] == 0
-    assert summary["period"]["gross_profit_micro_usd"] == 1472 - 1656
+    assert user["balance_micro_usd"] == 10_000_000 - 1234
+    assert summary["account"]["balance_micro_cny"] == 70_000_000 - 9720
+    assert summary["ledger_totals"]["internal_variance_micro_cny"] == 0
+    assert summary["period"]["gross_profit_micro_cny"] == 8638 - 9720
     glm_price = next(row for row in public_prices if row["model"] == "glm-5.2")
     assert glm_price["supplier_managed"] is True
+    assert glm_price["official_input_micro_cny_per_million"] == 8_000_000
     assert "supplier" not in glm_price and "supplier_multiplier" not in glm_price
     usage_row = public_usage["items"][0]
     assert "supplier_cost_micro_usd" not in usage_row

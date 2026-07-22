@@ -80,6 +80,11 @@ async def record_and_charge(
         model, prompt_tokens, completion_tokens,
         cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
     )
+    from services.apikey import moxing_accounting
+    billing_fx_rate = None
+    if moxing_accounting.is_moxing_slot(slot_id):
+        from services.apikey import fx
+        billing_fx_rate = (await fx.current_usd_cny())["rate"]
     # 应用用户价格系数：实扣 = 模型价 × 系数（1.0=原价 / 0.5=五折 / 1.3=上浮）。
     # round() 为 round-half-to-even，与 Go pyRound 一致。
     mult = 1.0
@@ -123,16 +128,17 @@ async def record_and_charge(
             """
             INSERT INTO ak_usage_logs
                 (api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens,
-                 total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id,
-                 user_multiplier, charged_paid_micro_usd, charged_trial_micro_usd)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                 cache_read_tokens, cache_write_tokens, total_tokens, cost_micro_usd, latency_ms,
+                 attempts, status, error_code, request_id, user_multiplier,
+                 charged_paid_micro_usd, charged_trial_micro_usd)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
             RETURNING id
             """,
             api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens,
-            total_tokens, cost, latency_ms, attempts, status_str, error_code, request_id,
+            cache_read_tokens, cache_write_tokens, total_tokens, cost, latency_ms,
+            attempts, status_str, error_code, request_id,
             mult, from_paid, from_trial,
         )
-        from services.apikey import moxing_accounting
         supplier_entry = await moxing_accounting.record_usage(
             conn,
             usage_log_id=int(usage_row["id"]),
@@ -146,6 +152,10 @@ async def record_and_charge(
             request_id=request_id,
             user_multiplier=mult,
             request_status=status_str,
+            customer_cost_micro_usd=cost,
+            charged_paid_micro_usd=from_paid,
+            charged_trial_micro_usd=from_trial,
+            billing_fx_rate=billing_fx_rate or 6.7648,
         )
     return {
         "cost_micro_usd": cost,
