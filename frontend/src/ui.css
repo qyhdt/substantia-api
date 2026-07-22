@@ -43,6 +43,12 @@ a.ak-tab:hover, a.ak-side-item:hover { text-decoration: none; }
 .ak-side-item { text-decoration: none; display: block; }
 .ak-tab:hover { color: var(--text); }
 .ak-tab.active { background: var(--panel); color: var(--text); border-color: var(--border); }
+.ak-key-subtabs {
+  padding: 4px; margin-bottom: 14px; width: fit-content;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2);
+}
+.ak-key-subtabs .ak-tab { min-width: 96px; text-align: center; }
+.ak-key-subtabs .ak-tab.active { box-shadow: 0 1px 2px rgba(16,24,40,.06); }
 
 /* 左侧菜单 + 右侧内容（admin 与用户控制台共用） */
 .ak-sidelayout { display: flex; gap: 20px; align-items: flex-start; }

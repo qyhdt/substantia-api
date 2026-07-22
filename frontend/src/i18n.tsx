@@ -76,6 +76,8 @@ const DICT = {
 
     // 控制台标签页
     tab_keys: '我的 Key',
+    keytab_manage: '密钥管理',
+    keytab_guide: '使用说明',
     tab_pricing: '价格',
     tab_usage: '我的账单',
     card_prices: '模型价格',
@@ -499,6 +501,8 @@ const DICT = {
 
     // console tabs
     tab_keys: 'My Keys',
+    keytab_manage: 'Key management',
+    keytab_guide: 'Usage guide',
     tab_pricing: 'Pricing',
     tab_usage: 'My Bills',
     card_prices: 'Model pricing',
