@@ -21,7 +21,7 @@ export function Landing(
   const rmbPerUsd = useRmbPerUsd()
   const livePrices = useAsync(() => publicApi.prices(), [])
   const money = (usd: number) => currency === 'rmb'
-    ? `¥${(usd * rmbPerUsd).toFixed(2)}`
+    ? `¥${Math.round(usd * rmbPerUsd)}`
     : `$${usd.toFixed(2)}`
   const prices = PRICES.map((item) => {
     if (!item.managed) return item

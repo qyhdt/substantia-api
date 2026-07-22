@@ -957,8 +957,10 @@ function MoxingTermRow({ term, currency, rmbPerUsd, onSaved }: {
   }
   const input = (key: keyof typeof form, width = 90, isMoney = false) => {
     const factor = isMoney && currency === 'rmb' ? rmbPerUsd : 1
-    return <input className="ak-input" type="number" step="0.01" min="0"
-      value={Number((form[key] * factor).toFixed(6))} style={{ width }}
+    const displayed = form[key] * factor
+    return <input className="ak-input" type="number" step={isMoney && currency === 'rmb' ? '1' : '0.01'} min="0"
+      value={isMoney && currency === 'rmb' ? Math.round(displayed) : Number(displayed.toFixed(6))}
+      style={{ width }}
       onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) / factor })} />
   }
   return <tr>
