@@ -4,6 +4,7 @@ import {
 } from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 import { CostDistributionChart } from '../components/CostDistributionChart'
+import { DailySpendChart } from '../components/DailySpendChart'
 import { useI18n, type TKey } from '../i18n'
 import { BRAND } from '../brand'
 import { readParam, pushParams, hrefFor } from '../nav'
@@ -619,7 +620,7 @@ function Bills() {
               <div className="ak-billing-stat"><span>{t('billing_tokens')}</span><b>{fmtCount(data.total_tokens)}</b></div>
               <div className="ak-billing-stat">
                 <span>{t('billing_exchange_rate')}</span>
-                <b>1 USD ≈ {rate.toFixed(4)} CNY</b>
+                <b>1 USD ≈ {rate.toFixed(2)} CNY</b>
                 <small>{data.rmb_rate_live ? `${data.rmb_rate_source} · ${data.rmb_rate_date || 'latest'}` : t('exchange_rate_fallback')}</small>
               </div>
             </div>
@@ -660,6 +661,11 @@ function Bills() {
                 </div>
               </section>
             </div>
+
+            <section className="ak-user-daily-chart">
+              <h4>{t('billing_daily_trend')}</h4>
+              <DailySpendChart rows={[...(data.daily || [])].reverse()} currency={currency} rmbPerUsd={rate} />
+            </section>
 
             <div className="ak-billing-panels ak-user-distribution-panels">
               <section>
@@ -753,7 +759,7 @@ function Prices() {
     }>
       <p className="ak-muted" style={{ marginTop: 0 }}>{t('prices_note')}</p>
       <p className="ak-muted" style={{ marginTop: -6, fontSize: 12 }}>
-        {t('billing_exchange_rate')}: 1 USD ≈ {rmbPerUsd.toFixed(4)} CNY
+        {t('billing_exchange_rate')}: 1 USD ≈ {rmbPerUsd.toFixed(2)} CNY
         {config.data?.rmb_rate_live ? ` · ${config.data.rmb_rate_source} · ${config.data.rmb_rate_date || 'latest'}` : ` · ${t('exchange_rate_fallback')}`}
       </p>
       <Async state={state}>{(rows: any[]) => {
@@ -868,7 +874,7 @@ function Wallet() {
             <div className="ak-wallet-stat"><span>{t('wallet_trial')}</span><b>{selectedMoney(me.trial_active ? me.trial_micro_usd : 0)}</b></div>
             <div className="ak-wallet-stat">
               <span>{t('wallet_model_currency')}</span><b>{currency.toUpperCase()}</b>
-              <small>1 USD ≈ {Number(rmbPerUsd).toFixed(4)} CNY</small>
+              <small>1 USD ≈ {Number(rmbPerUsd).toFixed(2)} CNY</small>
             </div>
           </div>
         )}</Async>
@@ -908,7 +914,7 @@ function Wallet() {
           <div style={{ marginTop: 8, fontSize: 13 }}>
             {t('xunhupay_charge')} <b>¥{rmb}</b>
             <span className="ak-muted" style={{ marginLeft: 6, fontSize: 12 }}>
-              (1 USD ≈ {Number(rmbPerUsd).toFixed(4)} CNY
+              (1 USD ≈ {Number(rmbPerUsd).toFixed(2)} CNY
               {enabled.data?.rmb_rate_live ? ` · ${enabled.data.rmb_rate_source} · ${enabled.data.rmb_rate_date || 'latest'}` : ` · ${t('exchange_rate_fallback')}`})
             </span>
           </div>

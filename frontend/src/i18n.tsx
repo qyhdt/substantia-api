@@ -213,6 +213,7 @@ const DICT = {
     billing_by_model: '模型费用分布',
     billing_model_distribution: '模型费用分布图',
     billing_channel_distribution: '渠道费用分布图',
+    billing_daily_trend: '每日消费曲线',
     billing_daily: '每日账单',
     billing_date: '日期',
 
@@ -726,6 +727,7 @@ const DICT = {
     billing_by_model: 'Spend by model',
     billing_model_distribution: 'Model spend distribution',
     billing_channel_distribution: 'Channel spend distribution',
+    billing_daily_trend: 'Daily spend trend',
     billing_daily: 'Daily bills',
     billing_date: 'Date',
 

@@ -120,7 +120,7 @@ export default function App() {
                 onClick={(e) => { e.preventDefault(); goView('admin') }}>Admin</a>
             </div>
           )}
-          <span className="ak-balance">{fmtDisplayCurrency(user.balance_micro_usd, currency, rmbPerUsd)}</span>
+          <span className="ak-balance">{fmtDisplayCurrency(user.balance_micro_usd, currency, rmbPerUsd, 2)}</span>
           <div className="ak-row" style={{ gap: 4 }}>
             {(['rmb', 'usd'] as const).map((value) => (
               <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
@@ -135,7 +135,7 @@ export default function App() {
 
       {user.trial_active && !user.trial_permanent && (
         <div className="ak-keybanner" style={{ background: '#eff6ff', borderColor: 'var(--accent)' }}>
-          🎁 {t('trial_banner_1')} <b>{fmtDisplayCurrency(user.trial_micro_usd, currency, rmbPerUsd)}</b>{t('trial_banner_2')}{' '}
+          🎁 {t('trial_banner_1')} <b>{fmtDisplayCurrency(user.trial_micro_usd, currency, rmbPerUsd, 2)}</b>{t('trial_banner_2')}{' '}
           <b>{user.trial_expires_at ? new Date(user.trial_expires_at).toLocaleDateString() : '—'}</b>
           {t('trial_banner_3')}<b>{t('trial_permanent')}</b>。
         </div>
