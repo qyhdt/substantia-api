@@ -110,15 +110,23 @@ def test_full_flow(client):
             api_key_id=key_id, user_id=u1, slot_id="sub-a", model="test-model",
             prompt_tokens=1000, completion_tokens=500, latency_ms=12,
         )
-        return billed, await users_svc.get_user(u1), await usage_svc.usage_for_user(u1)
+        return (
+            billed,
+            await users_svc.get_user(u1),
+            await usage_svc.usage_for_user(u1),
+            await usage_svc.billing_summary(u1, 7),
+        )
 
-    billed, user_after, rows = _run(_charge_and_read())
+    billed, user_after, rows, billing = _run(_charge_and_read())
     assert billed["cost_micro_usd"] == 2000
     assert user_after["balance_micro_usd"] == 50_000_000
     assert user_after["trial_micro_usd"] == 20_000_000 - 2000
     assert rows["total"] == 1
     assert rows["items"][0]["cost_micro_usd"] == 2000
     assert rows["items"][0]["model"] == "test-model"
+    assert billing["by_model"][0]["model"] == "test-model"
+    assert billing["by_slot"][0]["slot_id"] == "sub-a"
+    assert billing["by_slot"][0]["cost"] == 2000
 
     details = client.get(
         "/api/admin/usage/details?email=u1%40example.com&start_date=2000-01-01&end_date=2100-01-01",

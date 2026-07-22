@@ -3,6 +3,7 @@ import {
   portal, RMB_PER_USD_FALLBACK,
 } from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
+import { CostDistributionChart } from '../components/CostDistributionChart'
 import { useI18n, type TKey } from '../i18n'
 import { BRAND } from '../brand'
 import { readParam, pushParams, hrefFor } from '../nav'
@@ -657,6 +658,17 @@ function Bills() {
                     </tbody>
                   </table>
                 </div>
+              </section>
+            </div>
+
+            <div className="ak-billing-panels ak-user-distribution-panels">
+              <section>
+                <h4>{t('billing_model_distribution')}</h4>
+                <CostDistributionChart rows={models} labelKey="model" currency={currency} rmbPerUsd={rate} />
+              </section>
+              <section>
+                <h4>{t('billing_channel_distribution')}</h4>
+                <CostDistributionChart rows={data.by_slot || []} labelKey="slot_id" currency={currency} rmbPerUsd={rate} />
               </section>
             </div>
           </>)

@@ -114,7 +114,7 @@ async def my_usage(
     return await usage_svc.usage_for_user(_uid(user), limit, offset, days)
 
 
-@router.get("/billing/summary", summary="我的账单聚合（总览 / 按日 / 按模型）")
+@router.get("/billing/summary", summary="我的账单聚合（总览 / 按日 / 按模型 / 按渠道）")
 async def my_billing_summary(days: int = 7, user: dict = Depends(current_user)):
     from services.apikey import fx
     result = await usage_svc.billing_summary(_uid(user), days)
