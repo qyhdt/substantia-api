@@ -97,6 +97,8 @@ export const admin = {
   setRole: (id: number, role: string) => api.post(`/admin/users/${id}/role?role=${role}`),
   setUserStatus: (id: number, status: string) => api.post(`/admin/users/${id}/status?status=${status}`),
   setMultiplier: (id: number, multiplier: number) => api.post(`/admin/users/${id}/multiplier`, { multiplier }),
+  setFullModelAccess: (id: number, enabled: boolean) =>
+    api.post(`/admin/users/${id}/full-model-access?enabled=${enabled}`),
   issueKey: (payload: any) => api.post('/admin/keys', payload),
   keyStatus: (id: number, status: string) => api.post(`/admin/keys/${id}/status?status=${status}`),
   prices: () => api.get('/admin/model-prices'),

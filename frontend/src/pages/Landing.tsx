@@ -1,14 +1,15 @@
-import { useI18n, LangToggle } from '../i18n'
+import { useI18n, LangToggle, type TKey } from '../i18n'
 import { BRAND } from '../brand'
 
-// Anthropic 官网价（每百万 token，美元）。展示时同时给出 ×50% 的实付价。
-const DISCOUNT = 0.5
-const PRICES = [
-  { model: 'claude-opus-4-8', in: 5, out: 25 },
-  { model: 'claude-sonnet-5', in: 3, out: 15 },
-  { model: 'claude-sonnet-4-6', in: 3, out: 15 },
-  { model: 'claude-haiku-4-5', in: 1, out: 5 },
-  { model: 'claude-fable-5', in: 10, out: 50 },
+// 官网价（每百万 token，美元）与本站倍率。Kimi K3 因资源短缺按原价供应。
+const PRICES: Array<{ model: string; in: number; out: number; multiplier: number; noteKey?: TKey }> = [
+  { model: 'claude-opus-4-8', in: 5, out: 25, multiplier: 0.8 },
+  { model: 'claude-sonnet-5', in: 3, out: 15, multiplier: 0.8 },
+  { model: 'claude-sonnet-4-6', in: 3, out: 15, multiplier: 0.8 },
+  { model: 'claude-haiku-4-5', in: 1, out: 5, multiplier: 0.8 },
+  { model: 'claude-fable-5', in: 10, out: 50, multiplier: 0.8 },
+  { model: 'glm-5.2', in: 1.4, out: 4.4, multiplier: 0.8, noteKey: 'pricing_glm_note' },
+  { model: 'kimi-k3', in: 3, out: 15, multiplier: 1, noteKey: 'pricing_kimi_note' },
 ]
 const usd = (n: number) => `$${n.toFixed(2)}`
 
@@ -53,7 +54,7 @@ export function Landing(
         {!loggedIn && <div className="lp-trial">🎁 {t('free_trial_note')}</div>}
       </header>
 
-      {/* 价格（放最前：用户一进来就能看到 5 折）*/}
+      {/* 价格（放最前：用户一进来就能看到各模型折扣）*/}
       <section id="pricing" className="lp-section">
         <div className="lp-center" style={{ marginBottom: 10 }}>
           <span className="lp-badge">{t('pricing_badge')}</span>
@@ -72,14 +73,17 @@ export function Landing(
             <tbody>
               {PRICES.map((p) => (
                 <tr key={p.model}>
-                  <td className="ak-mono">{p.model}</td>
                   <td>
-                    <span className="lp-off">{t('pricing_official')} {usd(p.in)}</span>{' '}
-                    <b className="lp-now">{usd(p.in * DISCOUNT)}</b>
+                    <span className="ak-mono">{p.model}</span>
+                    {p.noteKey && <div className="ak-muted" style={{ fontSize: 11 }}>{t(p.noteKey)}</div>}
                   </td>
                   <td>
-                    <span className="lp-off">{t('pricing_official')} {usd(p.out)}</span>{' '}
-                    <b className="lp-now">{usd(p.out * DISCOUNT)}</b>
+                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {usd(p.in)}</span>{' '}</>}
+                    <b className="lp-now">{usd(p.in * p.multiplier)}</b>
+                  </td>
+                  <td>
+                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {usd(p.out)}</span>{' '}</>}
+                    <b className="lp-now">{usd(p.out * p.multiplier)}</b>
                   </td>
                 </tr>
               ))}

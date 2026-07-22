@@ -105,6 +105,15 @@ async def set_multiplier(user_id: int, payload: MultiplierIn, admin: dict = Depe
     return {"ok": True, "user_id": user_id, "multiplier": payload.multiplier}
 
 
+@router.post("/users/{user_id}/full-model-access", summary="设置全模型权限标签")
+async def set_full_model_access(user_id: int, enabled: bool, admin: dict = Depends(require_admin)):
+    await _owner_guard(admin, user_id)
+    ok = await users_svc.set_full_model_access(user_id, enabled)
+    if not ok:
+        raise HTTPException(status_code=404, detail="user not found")
+    return {"ok": True, "user_id": user_id, "full_model_access": enabled}
+
+
 @router.get("/users/{user_id}/detail", summary="单用户详情：余额分桶 + 消费聚合 + 用量明细")
 async def user_detail(user_id: int, admin: dict = Depends(require_admin)):
     await _owner_guard(admin, user_id)

@@ -31,6 +31,7 @@ from services.apikey import runner
 from services.apikey import usage as usage_svc
 from services.chatgpt import models as cg_models
 from services.chatgpt import provider as chatgpt
+from services.moxing import provider as moxing
 from services.claude import docker_manager as dm
 from services.claude.registry import get_router
 from services.claude.slots import SlotType
@@ -40,6 +41,11 @@ from utils.request_context import request_context
 
 router = APIRouter(prefix="/v1", tags=["gateway"])
 log = get_app_logger()
+
+
+def _force_glm_for_user(user: dict) -> bool:
+    """未打全模型标签的赠送/免费用户统一走 GLM 5.2。"""
+    return not bool(user.get("full_model_access"))
 
 
 class MessagesIn(BaseModel):
@@ -468,9 +474,9 @@ async def _passthrough_identity_stream(key: dict, user: dict, raw: dict, request
     return _anthropic_data_sse(data)
 
 
-async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Request):
+async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Request, *, slot_router=None):
     """带 tools 的请求：拿 slot 凭据直打 api.anthropic.com/v1/messages，原样转发/回传。"""
-    slot_router = get_router()
+    slot_router = slot_router or get_router()
     uid = _safe_uid(user)
     raw = {**raw, "model": pt.normalize_model(raw.get("model")) or settings.AK_DEFAULT_MODEL}
     model = raw["model"]
@@ -608,6 +614,26 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
 async def messages(payload: MessagesIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
 
+    # 未打全模型标签的赠送/免费用户：不论请求型号是什么，公开 model、计费与上游均为 GLM 5.2。
+    if _force_glm_for_user(user):
+        model = moxing.FORCED_MODEL
+        usage_svc.precheck(key, user, model)
+        raw = await request.json()
+        raw["model"] = model
+        return await _passthrough_anthropic(
+            key, user, raw, request, slot_router=moxing.direct_router(moxing.FORCED_MODEL),
+        )
+
+    # 全模型用户显式选择 GLM/Kimi：公开模型名与上游模型一致，不经过 Claude fallback 池。
+    if moxing.is_direct_model(payload.model):
+        model = moxing.normalize_model(payload.model)
+        usage_svc.precheck(key, user, model)
+        raw = await request.json()
+        raw["model"] = model
+        return await _passthrough_anthropic(
+            key, user, raw, request, slot_router=moxing.direct_router(model),
+        )
+
     # ChatGPT 系模型（gpt-* / o* / codex）分流到 ChatGPT 上游，压平成 prompt 跑 codex/openai，
     # 结果回成 Anthropic 响应格式。Claude 请求走下面原有的原生透传，零影响。
     if cg_models.is_chatgpt_model(payload.model):
@@ -697,9 +723,9 @@ async def list_models(auth: dict = Depends(authenticate_key)):
     }
 
 
-async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request):
+async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request, *, slot_router=None):
     """OpenAI 带 tools 的请求：翻译成 Anthropic → 原生透传（非流式上游）→ 翻译回 OpenAI。"""
-    slot_router = get_router()
+    slot_router = slot_router or get_router()
     uid = _safe_uid(user)
     raw = {**raw, "model": pt.normalize_model(raw.get("model")) or settings.AK_DEFAULT_MODEL}
     model = raw["model"]
@@ -748,9 +774,68 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
     return JSONResponse(comp)
 
 
+async def _passthrough_moxing_openai(key: dict, user: dict, raw: dict, request: Request):
+    """GLM/Kimi 的 OpenAI 原生直连：保留 temperature/user/tools 等 moxing 支持的字段。"""
+    model = moxing.normalize_model(raw.get("model"))
+    want_stream = bool(raw.get("stream"))
+    started = time.monotonic()
+    request_id = (request_context.get({}) or {}).get("trace_id")
+    try:
+        data = await moxing.chat_completion(raw)
+    except Exception as exc:
+        status_code = getattr(exc, "status", 502)
+        status_code = status_code if isinstance(status_code, int) and status_code >= 400 else 502
+        await usage_svc.record_and_charge(
+            api_key_id=key["id"], user_id=user["id"], slot_id=None, model=model,
+            prompt_tokens=0, completion_tokens=0,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            status_str="error", error_code=type(exc).__name__, request_id=request_id,
+        )
+        log.warning("moxing direct upstream error: %s", type(exc).__name__)
+        raise HTTPException(status_code=status_code, detail=f"moxing upstream error: {exc}")
+
+    prompt_tokens, completion_tokens, cached_tokens = moxing.usage(data)
+    await usage_svc.record_and_charge(
+        api_key_id=key["id"], user_id=user["id"], slot_id="direct-moxing", model=model,
+        prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+        cache_read_tokens=cached_tokens,
+        latency_ms=int((time.monotonic() - started) * 1000),
+        attempts=1, status_str="ok", request_id=request_id,
+    )
+    data = dict(data)
+    data["model"] = model
+    if want_stream:
+        chunks = pt.openai_stream_chunks(data)
+
+        async def gen():
+            for chunk in chunks:
+                yield chunk
+
+        return sse_response(gen())
+    return JSONResponse(data)
+
+
 @router.post("/chat/completions", summary="OpenAI Chat Completions 兼容入口（sk-key；全部翻译成原生透传）")
 async def chat_completions(payload: ChatCompletionsIn, request: Request, auth: dict = Depends(authenticate_key)):
     key, user = auth["key"], auth["user"]
+
+    # 未打全模型标签的赠送/免费用户：公开 model、计费与上游均统一为 GLM 5.2。
+    if _force_glm_for_user(user):
+        model = moxing.FORCED_MODEL
+        usage_svc.precheck(key, user, model)
+        raw = await request.json()
+        raw["model"] = model
+        return await _passthrough_openai(
+            key, user, raw, request, slot_router=moxing.direct_router(moxing.FORCED_MODEL),
+        )
+
+    # 全模型用户显式选择 GLM/Kimi 时，按 OpenAI 协议原生直连 moxing。
+    if moxing.is_direct_model(payload.model):
+        model = moxing.normalize_model(payload.model)
+        usage_svc.precheck(key, user, model)
+        raw = await request.json()
+        raw["model"] = model
+        return await _passthrough_moxing_openai(key, user, raw, request)
 
     # ChatGPT 系模型分流到 ChatGPT 上游；结构化 messages 直接给 OpenAI key 上游（保真），
     # codex 上游用压平 prompt。结果回成 OpenAI 响应格式。Claude 请求走原有翻译透传。

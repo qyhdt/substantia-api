@@ -175,6 +175,10 @@ function Users() {
     await admin.setMultiplier(u.id, n)
     state.reload()
   }
+  async function toggleFullModelAccess(u: any) {
+    await admin.setFullModelAccess(u.id, !u.full_model_access)
+    state.reload()
+  }
   const fmtMult = (m: any) => (m == null ? '1' : Number(m).toString())
   return (
     <Card title={t('admin_users_title')}>
@@ -195,7 +199,7 @@ function Users() {
       <div className="ak-muted" style={{ fontSize: 12, marginBottom: 14 }}>{t('admin_adduser_defpw')}</div>
       <Async state={state}>{(rows: any[]) => (
         <table className="ak-table">
-          <thead><tr><th>{t('admin_col_id')}</th><th>{t('admin_col_email')}</th><th>{t('admin_col_role')}</th><th>{t('admin_col_status')}</th><th>{t('admin_col_balance')}</th><th>{t('admin_col_mult')}</th><th>{t('admin_col_trial')}</th><th></th></tr></thead>
+          <thead><tr><th>{t('admin_col_id')}</th><th>{t('admin_col_email')}</th><th>{t('admin_col_role')}</th><th>{t('admin_col_status')}</th><th>{t('admin_col_balance')}</th><th>{t('admin_col_mult')}</th><th>{t('admin_col_model_access')}</th><th>{t('admin_col_trial')}</th><th></th></tr></thead>
           <tbody>
             {rows.map((u) => (
               <tr key={u.id}>
@@ -207,6 +211,7 @@ function Users() {
                 <td><Pill kind={u.status === 'active' ? 'ok' : 'bad'}>{u.status}</Pill></td>
                 <td className="ak-balance">{fmtUsd(u.balance_micro_usd)}</td>
                 <td><Pill kind={fmtMult(u.price_multiplier) !== '1' ? 'warn' : undefined}>×{fmtMult(u.price_multiplier)}</Pill></td>
+                <td><Pill kind={u.full_model_access ? 'ok' : 'warn'}>{u.full_model_access ? t('admin_full_models') : t('admin_glm_only')}</Pill></td>
                 <td>{u.trial_active
                   ? <span className="ak-muted">{fmtUsd(u.trial_micro_usd)} {t('admin_until')} {u.trial_expires_at ? new Date(u.trial_expires_at).toLocaleDateString() : '—'}</span>
                   : <span className="ak-muted">—</span>}</td>
@@ -214,6 +219,7 @@ function Users() {
                   <div className="ak-row">
                     <button className="ak-btn" onClick={() => grant(u.id)}>{t('admin_btn_grant')}</button>
                     <button className="ak-btn" onClick={() => setMult(u)}>{t('admin_btn_mult')}</button>
+                    <button className="ak-btn" onClick={() => toggleFullModelAccess(u)}>{u.full_model_access ? t('admin_set_glm_only') : t('admin_set_full_models')}</button>
                     <button className="ak-btn" onClick={() => toggleRole(u)}>{u.role === 'admin' ? t('admin_demote') : t('admin_promote')}</button>
                     <button className="ak-btn danger" onClick={() => toggleStatus(u)}>{u.status === 'active' ? t('admin_disable') : t('admin_enable')}</button>
                   </div>

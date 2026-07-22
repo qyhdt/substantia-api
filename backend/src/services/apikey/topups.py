@@ -67,7 +67,8 @@ async def review(
         )
         if approve:
             await conn.execute(
-                "UPDATE ak_users SET balance_micro_usd = balance_micro_usd + $1 WHERE id = $2",
+                "UPDATE ak_users SET balance_micro_usd = balance_micro_usd + $1, "
+                "full_model_access = true WHERE id = $2",
                 int(row["requested_micro_usd"]), row["user_id"],
             )
         updated = await conn.fetchrow("SELECT * FROM ak_topup_requests WHERE id = $1", topup_id)

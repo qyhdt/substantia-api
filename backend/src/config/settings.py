@@ -113,6 +113,10 @@ class Settings(BaseSettings):
     CLAUDE_FALLBACK_GEMINI_BASE_URL: str = ""
     CLAUDE_FALLBACK_GEMINI_AUTH_TOKEN: str = ""
     CLAUDE_FALLBACK_GEMINI_MODEL: str = ""
+    # moxing 公开模型（GLM 5.2 / Kimi K3）的 OpenAI/Anthropic 兼容直连。
+    # 留空时复用 CLAUDE_FALLBACK_MOXING_BASE_URL/AUTH_TOKEN，避免同一密钥重复配置。
+    MOXING_API_BASE: str = ""
+    MOXING_API_KEY: str = ""
     # 本节点出口 IP：db 模式下按此 IP 从 claude_slots 取本机负责的账号（账号绑定服务器出口 IP）。
     CLAUDE_NODE_IP: str = ""
 
