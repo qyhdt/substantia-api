@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { fmtUsd, portal } from '../api'
+import {
+  fmtCnyFromMicroUsd, fmtModelCost, fmtUsd, isChinaModel, portal, RMB_PER_USD_FALLBACK,
+} from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 import { useI18n, type TKey } from '../i18n'
 import { BRAND } from '../brand'
@@ -118,8 +120,8 @@ export function UserDashboard({ newKey }: { newKey?: string }) {
       <section className="ak-sidecontent">
         {tab === 'keys' && <Keys justIssued={newKey} />}
         {tab === 'pricing' && <Prices />}
-        {tab === 'usage' && <Usage />}
-        {tab === 'topups' && <Topups />}
+        {tab === 'usage' && <Bills />}
+        {tab === 'topups' && <Wallet />}
       </section>
     </div>
   )
@@ -352,38 +354,111 @@ function Keys({ justIssued }: { justIssued?: string }) {
   )
 }
 
-function Usage() {
+const fmtCount = (value: any) => new Intl.NumberFormat().format(Number(value || 0))
+
+function Bills() {
   const { t } = useI18n()
+  const [days, setDays] = useState(7)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
-  const state = useAsync(() => portal.usage(pageSize, (page - 1) * pageSize), [page, pageSize])
+  const summary = useAsync(() => portal.billingSummary(days), [days])
+  const state = useAsync(() => portal.usage(pageSize, (page - 1) * pageSize, days), [page, pageSize, days])
+  const pickDays = (value: number) => { setDays(value); setPage(1) }
   return (
-    <Card title={t('card_usage')}>
+    <>
+      <Card title={t('billing_overview')} actions={
+        <div className="ak-row" style={{ gap: 6 }}>
+          {[7, 30, 90].map((value) => (
+            <button key={value} className={`ak-btn ${days === value ? 'primary' : ''}`}
+              onClick={() => pickDays(value)}>{t(`billing_days_${value}` as TKey)}</button>
+          ))}
+        </div>
+      }>
+        <Async state={summary}>{(data: any) => {
+          const rate = Number(data.rmb_per_usd || RMB_PER_USD_FALLBACK)
+          const models = data.by_model || []
+          const maxCost = Math.max(1, ...models.map((row: any) => Number(row.cost || 0)))
+          return (<>
+            <div className="ak-billing-stats">
+              <div className="ak-billing-stat featured">
+                <span>{t('billing_total_cost')}</span>
+                <b>{fmtUsd(data.overseas_cost_micro_usd)}</b>
+                <strong>+ {fmtCnyFromMicroUsd(data.china_cost_micro_usd, rate, 2)}</strong>
+                <small>{t('billing_currency_note')}</small>
+              </div>
+              <div className="ak-billing-stat"><span>{t('billing_calls')}</span><b>{fmtCount(data.total_calls)}</b></div>
+              <div className="ak-billing-stat"><span>{t('billing_tokens')}</span><b>{fmtCount(data.total_tokens)}</b></div>
+              <div className="ak-billing-stat"><span>{t('billing_exchange_rate')}</span><b>1 USD ≈ {rate} CNY</b></div>
+            </div>
+
+            <div className="ak-billing-panels">
+              <section>
+                <h4>{t('billing_by_model')}</h4>
+                <div className="ak-model-cost-list">
+                  {models.map((row: any) => (
+                    <div className="ak-model-cost" key={row.model}>
+                      <div className="ak-row" style={{ justifyContent: 'space-between' }}>
+                        <span><b>{row.model}</b> <small>{fmtCount(row.calls)} {t('billing_calls_unit')}</small></span>
+                        <strong>{fmtModelCost(row.model, row.cost, rate)}</strong>
+                      </div>
+                      <div className="ak-cost-track"><i style={{ width: `${Math.max(2, Number(row.cost || 0) / maxCost * 100)}%` }} /></div>
+                    </div>
+                  ))}
+                  {models.length === 0 && <p className="ak-muted">{t('empty_usage')}</p>}
+                </div>
+              </section>
+              <section>
+                <h4>{t('billing_daily')}</h4>
+                <div className="ak-table-scroll">
+                  <table className="ak-table">
+                    <thead><tr><th>{t('billing_date')}</th><th>{t('billing_calls')}</th><th>{t('billing_overseas')}</th><th>{t('billing_china')}</th></tr></thead>
+                    <tbody>
+                      {(data.daily || []).map((row: any) => (
+                        <tr key={String(row.day)}>
+                          <td>{String(row.day).slice(0, 10)}</td>
+                          <td>{fmtCount(row.calls)}</td>
+                          <td>{fmtUsd(row.overseas_cost)}</td>
+                          <td>{fmtCnyFromMicroUsd(row.china_cost, rate)}</td>
+                        </tr>
+                      ))}
+                      {(data.daily || []).length === 0 && <tr><td colSpan={4} className="ak-muted">{t('empty_usage')}</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </>)
+        }}</Async>
+      </Card>
+      <Card title={t('billing_detail')}>
       <Async state={state}>{(data: any) => (<>
-        <table className="ak-table">
-          <thead><tr><th>{t('col_time')}</th><th>{t('col_model')}</th><th>{t('col_slot')}</th><th>{t('col_tokens')}</th><th>{t('col_cost')}</th><th>{t('col_status')}</th></tr></thead>
-          <tbody>
-            {(data.items || []).map((r: any) => (
-              <tr key={r.id}>
-                <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
-                <td>{r.model}</td>
-                <td className="ak-mono">{r.slot_id || '—'}</td>
-                <td>{r.total_tokens} <span className="ak-muted">({r.prompt_tokens}+{r.completion_tokens})</span></td>
-                <td>{fmtUsd(r.cost_micro_usd)}</td>
-                <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status}</Pill></td>
-              </tr>
-            ))}
-            {(data.items || []).length === 0 && <tr><td colSpan={6} className="ak-muted">{t('empty_usage')}</td></tr>}
-          </tbody>
-        </table>
+        <div className="ak-table-scroll">
+          <table className="ak-table">
+            <thead><tr><th>{t('col_time')}</th><th>{t('col_model')}</th><th>{t('col_slot')}</th><th>{t('col_tokens')}</th><th>{t('col_cost')}</th><th>{t('col_status')}</th></tr></thead>
+            <tbody>
+              {(data.items || []).map((r: any) => (
+                <tr key={r.id}>
+                  <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
+                  <td><b>{r.model}</b><div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(r.model) ? 'CNY' : 'USD'}</div></td>
+                  <td className="ak-mono">{r.slot_id || '—'}</td>
+                  <td>{fmtCount(r.total_tokens)} <span className="ak-muted">({fmtCount(r.prompt_tokens)}+{fmtCount(r.completion_tokens)})</span></td>
+                  <td><b>{fmtModelCost(r.model, r.cost_micro_usd, summary.data?.rmb_per_usd)}</b></td>
+                  <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status}</Pill></td>
+                </tr>
+              ))}
+              {(data.items || []).length === 0 && <tr><td colSpan={6} className="ak-muted">{t('empty_usage')}</td></tr>}
+            </tbody>
+          </table>
+        </div>
         <Pager total={data.total || 0} page={page} pageSize={pageSize}
           onPage={setPage} onPageSize={(s) => { setPageSize(s); setPage(1) }} />
       </>)}</Async>
-    </Card>
+      </Card>
+    </>
   )
 }
 
-// 控制台展示的当前主推模型（与首页价格表一致，过滤掉旧版/重复/非 Claude 模型）。
+// 控制台展示完整的当前可用模型；首页营销价格表可按运营需要隐藏部分型号。
 const PRICE_MODELS: Array<{ id: string; multiplier: number; noteKey?: TKey }> = [
   { id: 'claude-opus-4-8', multiplier: 0.8 },
   { id: 'claude-sonnet-5', multiplier: 0.8 },
@@ -397,14 +472,22 @@ const PRICE_MODELS: Array<{ id: string; multiplier: number; noteKey?: TKey }> = 
 function Prices() {
   const { t } = useI18n()
   const state = useAsync(() => portal.prices(), [])
+  const config = useAsync(() => portal.rechargeEnabled(), [])
+  const rmbPerUsd = Number(config.data?.rmb_per_usd || RMB_PER_USD_FALLBACK)
   // 库里存的是 micro-USD / 1k token（已是实付价）；换算成 $ / 百万 token：micro_per_1k / 1000。
   const now = (v: any) => Number(v || 0) / 1000
-  const PriceCell = ({ micro, multiplier }: { micro: any; multiplier: number }) => {
+  const perMillion = (micro: any, model: string) => {
+    const value = now(micro)
+    return isChinaModel(model) ? `¥${(value * rmbPerUsd).toFixed(2)}` : `$${value.toFixed(2)}`
+  }
+  const PriceCell = ({ micro, multiplier, model }: { micro: any; multiplier: number; model: string }) => {
     const n = now(micro)
+    const factor = isChinaModel(model) ? rmbPerUsd : 1
+    const symbol = isChinaModel(model) ? '¥' : '$'
     return (
       <span>
-        {multiplier < 1 && <><span className="lp-off">{t('pricing_official')} ${(n / multiplier).toFixed(2)}</span>{' '}</>}
-        <b className="lp-now">${n.toFixed(2)}</b>
+        {multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {symbol}{(n / multiplier * factor).toFixed(2)}</span>{' '}</>}
+        <b className="lp-now">{symbol}{(n * factor).toFixed(2)}</b>
       </span>
     )
   }
@@ -432,12 +515,13 @@ function Prices() {
                   <td>
                     <b>{r.display_name || r.model}</b>
                     <div className="ak-mono ak-muted" style={{ fontSize: 12 }}>{r.model}</div>
+                    <div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(r.model) ? 'CNY' : 'USD'}</div>
                     {r.priceMeta.noteKey && <div className="ak-muted" style={{ fontSize: 11 }}>{t(r.priceMeta.noteKey)}</div>}
                   </td>
-                  <td><PriceCell micro={r.input_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} /></td>
-                  <td><PriceCell micro={r.output_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} /></td>
-                  <td className="ak-muted">${now(r.cache_read_micro_usd_per_1k).toFixed(2)}</td>
-                  <td className="ak-muted">${now(r.cache_write_micro_usd_per_1k).toFixed(2)}</td>
+                  <td><PriceCell micro={r.input_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} model={r.model} /></td>
+                  <td><PriceCell micro={r.output_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} model={r.model} /></td>
+                  <td className="ak-muted">{perMillion(r.cache_read_micro_usd_per_1k, r.model)}</td>
+                  <td className="ak-muted">{perMillion(r.cache_write_micro_usd_per_1k, r.model)}</td>
                 </tr>
               ))}
               {list.length === 0 && <tr><td colSpan={5} className="ak-muted">—</td></tr>}
@@ -449,11 +533,12 @@ function Prices() {
   )
 }
 
-function Topups() {
+function Wallet() {
   const { t } = useI18n()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const state = useAsync(() => portal.payments(pageSize, (page - 1) * pageSize), [page, pageSize])
+  const account = useAsync(() => portal.me(), [])
   const enabled = useAsync(() => portal.rechargeEnabled(), [])
   const tiers: { threshold_usd: number; bonus_usd: number }[] = enabled.data?.bonus_tiers || [
     { threshold_usd: 20, bonus_usd: 2 }, { threshold_usd: 50, bonus_usd: 10 }, { threshold_usd: 100, bonus_usd: 25 },
@@ -494,6 +579,21 @@ function Topups() {
   const off = method === 'polar' ? !polarOn : !xunhupayOn
   return (
     <>
+      <Card title={t('wallet_overview')}>
+        <Async state={account}>{(me: any) => (
+          <div className="ak-wallet-grid">
+            <div className="ak-wallet-balance">
+              <span>{t('wallet_available')}</span>
+              <b>{fmtUsd(me.balance_micro_usd)}</b>
+              <strong>≈ {fmtCnyFromMicroUsd(me.balance_micro_usd, rmbPerUsd, 2)}</strong>
+              <small>{t('wallet_balance_note')}</small>
+            </div>
+            <div className="ak-wallet-stat"><span>{t('wallet_paid')}</span><b>{fmtUsd(me.paid_micro_usd)}</b></div>
+            <div className="ak-wallet-stat"><span>{t('wallet_trial')}</span><b>{fmtUsd(me.trial_active ? me.trial_micro_usd : 0)}</b></div>
+            <div className="ak-wallet-stat"><span>{t('wallet_model_currency')}</span><b>GLM / Kimi · CNY</b><small>Claude / GPT · USD</small></div>
+          </div>
+        )}</Async>
+      </Card>
       <Card title={t('card_recharge')}>
         {(polarOn && xunhupayOn) && (
           <div className="ak-row" style={{ marginBottom: 12 }}>
@@ -543,16 +643,19 @@ function Topups() {
       <Card title={t('card_recharge_log')}>
         <Async state={state}>{(data: any) => (<>
           <table className="ak-table">
-            <thead><tr><th>{t('col_time')}</th><th>{t('col_amount')}</th><th>{t('col_status')}</th></tr></thead>
+            <thead><tr><th>{t('col_time')}</th><th>{t('wallet_channel')}</th><th>{t('col_amount')}</th><th>{t('col_status')}</th></tr></thead>
             <tbody>
               {(data.items || []).map((r: any) => (
                 <tr key={r.id}>
                   <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
-                  <td>{fmtUsd(r.amount_micro_usd)}</td>
+                  <td>{r.provider === 'xunhupay' ? t('pay_wx_alipay') : t('pay_card')}</td>
+                  <td><b>{r.provider === 'xunhupay'
+                    ? `¥${Number(r.amount_rmb || (Number(r.amount_micro_usd || 0) / 1e6 * rmbPerUsd)).toFixed(2)}`
+                    : fmtUsd(r.amount_micro_usd)}</b></td>
                   <td><Pill kind={r.status === 'paid' ? 'ok' : 'warn'}>{r.status === 'paid' ? t('topup_paid') : t('topup_pending')}</Pill></td>
                 </tr>
               ))}
-              {(data.items || []).length === 0 && <tr><td colSpan={3} className="ak-muted">{t('empty_topups')}</td></tr>}
+              {(data.items || []).length === 0 && <tr><td colSpan={4} className="ak-muted">{t('empty_topups')}</td></tr>}
             </tbody>
           </table>
           <Pager total={data.total || 0} page={page} pageSize={pageSize}

@@ -107,8 +107,18 @@ async def key_usage(key_id: int, user: dict = Depends(current_user)):
 
 
 @router.get("/usage", summary="我的用量明细（分页）")
-async def my_usage(limit: int = 50, offset: int = 0, user: dict = Depends(current_user)):
-    return await usage_svc.usage_for_user(_uid(user), limit, offset)
+async def my_usage(
+    limit: int = 50, offset: int = 0, days: Optional[int] = None,
+    user: dict = Depends(current_user),
+):
+    return await usage_svc.usage_for_user(_uid(user), limit, offset, days)
+
+
+@router.get("/billing/summary", summary="我的账单聚合（总览 / 按日 / 按模型）")
+async def my_billing_summary(days: int = 7, user: dict = Depends(current_user)):
+    result = await usage_svc.billing_summary(_uid(user), days)
+    result["rmb_per_usd"] = xunhupay_svc._rmb_per_usd()
+    return result
 
 
 @router.get("/topups", summary="我的充值申请列表")

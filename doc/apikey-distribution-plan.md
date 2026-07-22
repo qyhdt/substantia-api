@@ -263,6 +263,7 @@
 ---
 
 ## 11. 变更记录（changelog）
+- **2026-07-22** · **用户账单与钱包**。用户控制台将原「用量明细 / 充值」升级为「我的账单 / 我的钱包」：新增 7/30/90 天账单总览、每日汇总、按模型费用分布与分页调用明细；钱包集中展示有效余额、充值余额、赠送余额、线上支付及人工充值。账务仍统一按 micro-USD 精确结算，展示层按当前充值汇率将 GLM、Kimi、Qwen、DeepSeek 等中国模型换算成人民币，Claude/GPT 等海外模型保留美元；价格表同步采用相同币种规则。
 - **2026-07-22** · 首页价格表隐藏 `claude-sonnet-4-6` 与 `claude-haiku-4-5`；仅调整营销页展示，不下架模型、不修改控制台选择或接口计费。
 - **2026-07-22** · **GLM/Kimi 接入、定价与用户权限分层**。新增墨行 `glm-5.2` / `kimi-k3` 直连，兼容 `/v1/messages` 与 `/v1/chat/completions`，且保留原 subscription → 墨行 → Gemini 兜底链。新增 `full_model_access` 用户标签：免费及赠送余额用户无论请求何模型都强制走 GLM 5.2；人工充值审核或线上支付成功后自动开放全部模型，管理端可查看和调整。migration `0017` 将 Claude 改为官网价 8 折，`0018` 增加并回填全模型权限，`0019` 增加 GLM/Kimi 定价。首页同步展示 GLM 5.2 官网价 8 折与 Kimi K3 原价/资源短缺说明，控制台补齐模型选择与价格。
 - **2026-06-27** · **远端上线 + 端到端联调通过**。在 `8.216.44.14` 用 `devops/deploy` 的 docker-compose 起 db+backend+web 三容器（backend 以 root 挂 docker.sock + 同路径挂 `/var/lib/substantia/claude`，故能 exec 兄弟容器 `claude-slot-sub-a`）。真实跑通 `/v1/messages`→docker exec→真 Opus 4.8→计费扣款。**计费修复**：`runner` 改为从 `claude --output-format json` 的 `modelUsage` 解析**实际命中模型**（`claude-opus-4-8`）作为计价依据（订阅档实际模型 ≠ 请求别名）；新增 `_cli_model` 把规范名/别名归一成 CLI 认的 `opus/sonnet/haiku`；migration `0002` 补真实模型名定价。验证：一次 pong（in 21122 / out 4 token）精确扣 317130 micro=$0.317。**遗留**：edge-nginx 域名反代、cache_read token 单独低价、限流执行、OpenAI 兼容（P2）。

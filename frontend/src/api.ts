@@ -69,7 +69,9 @@ export const portal = {
   disableKey: (id: number) => api.post(`/portal/keys/${id}/disable`),
   deleteKey: (id: number) => api.del(`/portal/keys/${id}`),
   keyUsage: (id: number) => api.get(`/portal/keys/${id}/usage`),
-  usage: (limit = 50, offset = 0) => api.get(`/portal/usage?limit=${limit}&offset=${offset}`),
+  usage: (limit = 50, offset = 0, days?: number) =>
+    api.get(`/portal/usage?limit=${limit}&offset=${offset}${days ? `&days=${days}` : ''}`),
+  billingSummary: (days = 7) => api.get(`/portal/billing/summary?days=${days}`),
   topups: () => api.get('/portal/topups'),
   submitTopup: (amount_usd: number, reason?: string, proof_url?: string) =>
     api.post('/portal/topups', { amount_usd, reason, proof_url }),
@@ -138,3 +140,24 @@ export const admin = {
 }
 
 export const fmtUsd = (micro: number | null | undefined) => `$${((micro || 0) / 1e6).toFixed(4)}`
+
+export const RMB_PER_USD_FALLBACK = 7.2
+
+const CHINA_MODEL_PREFIXES = ['glm', 'kimi', 'qwen', 'deepseek', 'doubao', 'ernie', 'baichuan']
+
+export const isChinaModel = (model: string | null | undefined) => {
+  const name = (model || '').trim().toLowerCase()
+  return CHINA_MODEL_PREFIXES.some((prefix) => name.startsWith(prefix))
+}
+
+export const fmtCnyFromMicroUsd = (
+  micro: number | null | undefined,
+  rate = RMB_PER_USD_FALLBACK,
+  digits = 4,
+) => `¥${(((micro || 0) / 1e6) * rate).toFixed(digits)}`
+
+export const fmtModelCost = (
+  model: string | null | undefined,
+  micro: number | null | undefined,
+  rate = RMB_PER_USD_FALLBACK,
+) => isChinaModel(model) ? fmtCnyFromMicroUsd(micro, rate) : fmtUsd(micro)
