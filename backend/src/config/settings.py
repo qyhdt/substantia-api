@@ -176,7 +176,10 @@ class Settings(BaseSettings):
     XUNHUPAY_APPSECRET: str = ""        # 渠道 AppSecret（MD5 签名用）
     XUNHUPAY_API_BASE: str = "https://api.xunhupay.com"   # 接口域名（一般不用改）
     # 用户下单金额仍以美元计（余额是 micro-USD），按此汇率换成人民币向虎皮椒收款。
+    # 该值仅是外部汇率服务不可用时的兜底；正常使用 FX_USD_CNY_URL 的最新参考汇率。
     XUNHUPAY_RMB_PER_USD: float = 7.2
+    FX_USD_CNY_URL: str = "https://api.frankfurter.dev/v2/rate/USD/CNY"
+    FX_RATE_CACHE_SECONDS: int = 3600
     # 异步通知 / 同步跳回地址；留空则从 PAYMENT_RETURN_URL 的域名自动推导。
     XUNHUPAY_NOTIFY_URL: str = ""       # 服务器回调 → /api/webhooks/xunhupay
     XUNHUPAY_RETURN_URL: str = ""       # 付款后浏览器跳回（默认用 RECHARGE_URL）
