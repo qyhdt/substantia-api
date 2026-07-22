@@ -182,7 +182,7 @@ async def _run_and_bill(key: dict, user: dict, model: str, prompt: str, request:
         latency_ms=latency_ms, attempts=result.attempts,
         status_str=("ok" if result.ok else "error"),
         error_code=(None if result.ok else f"exit_{result.exit_code}"),
-        request_id=request_id,
+        request_id=request_id, upstream_model=getattr(result, "upstream_model", None),
     )
     return result, billed
 
@@ -220,13 +220,15 @@ async def _run_chatgpt_and_bill(key: dict, user: dict, model: str, prompt: str, 
 
 # ============================ 原生透传（带 tools 走这条，支持 agent 工具调用）============================
 async def _bill_pt(key, user, model, in_tok, out_tok, latency_ms, request, *, slot_id=None,
-                   cache_read=0, cache_write=0, status="ok", error_code=None, attempts=1):
+                   upstream_model=None, cache_read=0, cache_write=0, status="ok",
+                   error_code=None, attempts=1):
     request_id = (request_context.get({}) or {}).get("trace_id")
     return await usage_svc.record_and_charge(
         api_key_id=key["id"], user_id=user["id"], slot_id=slot_id, model=model,
         prompt_tokens=in_tok, completion_tokens=out_tok, latency_ms=latency_ms,
         cache_read_tokens=cache_read, cache_write_tokens=cache_write,
-        attempts=max(1, int(attempts)), status_str=status, error_code=error_code, request_id=request_id,
+        attempts=max(1, int(attempts)), status_str=status, error_code=error_code,
+        request_id=request_id, upstream_model=upstream_model,
     )
 
 
@@ -469,7 +471,7 @@ async def _passthrough_identity_stream(key: dict, user: dict, raw: dict, request
     await _bill_pt(
         key, user, model, in_tok, out_tok, result["latency_ms"], request,
         slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok,
-        attempts=result["attempts"],
+        attempts=result["attempts"], upstream_model=slot.env.get("ANTHROPIC_MODEL"),
     )
     return _anthropic_data_sse(data)
 
@@ -502,7 +504,7 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
             await _bill_pt(
                 key, user, model, in_tok, out_tok, result["latency_ms"], request,
                 slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok,
-                attempts=result["attempts"],
+                attempts=result["attempts"], upstream_model=slot.env.get("ANTHROPIC_MODEL"),
             )
         return JSONResponse(data, status_code=result["status_code"])
 
@@ -591,7 +593,7 @@ async def _passthrough_anthropic(key: dict, user: dict, raw: dict, request: Requ
                                 key, user, model, in_tok, out_tok,
                                 int((time.monotonic() - total_started) * 1000), request,
                                 slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok,
-                                attempts=attempt,
+                                attempts=attempt, upstream_model=slot.env.get("ANTHROPIC_MODEL"),
                             )
                         return
             except Exception as exc:
@@ -760,7 +762,7 @@ async def _passthrough_openai(key: dict, user: dict, raw: dict, request: Request
     await _bill_pt(
         key, user, model, in_tok, out_tok, result["latency_ms"], request,
         slot_id=slot.id, cache_read=cr_tok, cache_write=cw_tok,
-        attempts=result["attempts"],
+        attempts=result["attempts"], upstream_model=slot.env.get("ANTHROPIC_MODEL"),
     )
     comp = pt.anthropic_to_openai(data)
     if want_stream:
@@ -800,7 +802,7 @@ async def _passthrough_moxing_openai(key: dict, user: dict, raw: dict, request: 
         prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
         cache_read_tokens=cached_tokens,
         latency_ms=int((time.monotonic() - started) * 1000),
-        attempts=1, status_str="ok", request_id=request_id,
+        attempts=1, status_str="ok", request_id=request_id, upstream_model=model,
     )
     data = dict(data)
     data["model"] = model

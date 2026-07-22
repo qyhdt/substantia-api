@@ -16,6 +16,7 @@ const TABS = [
   ['users', 'admin_tab_users'],
   ['prices', 'admin_tab_prices'],
   ['slots', 'admin_tab_slots'],
+  ['moxing', 'admin_tab_moxing'],
   ['usage', 'admin_tab_usage'],
 ] as const satisfies ReadonlyArray<readonly [string, TKey]>
 
@@ -50,6 +51,7 @@ export function AdminDashboard() {
         {tab === 'users' && <Users />}
         {tab === 'prices' && <Prices />}
         {tab === 'slots' && <Slots />}
+        {tab === 'moxing' && <MoxingAccounting />}
         {tab === 'usage' && <UsageBoard />}
       </section>
     </div>
@@ -406,14 +408,17 @@ function Prices() {
                       ? <input className="ak-input" type="number" step="0.0001" value={e.output} style={{ width: 100 }}
                           onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, output: Number(ev.target.value) } })} />
                       : fmtUsd(p.output_micro_usd_per_1k)}</td>
-                    <td>
-                      <a className="ak-link" style={{ cursor: 'pointer' }} onClick={() => toggleEnabled(p)}>
-                        <Pill kind={p.enabled ? 'ok' : 'bad'}>{p.enabled ? 'on' : 'off'}</Pill>
-                      </a>
+                    <td>{p.supplier_managed
+                      ? <Pill kind="warn">{t('admin_supplier_managed')}</Pill>
+                      : <a className="ak-link" style={{ cursor: 'pointer' }} onClick={() => toggleEnabled(p)}>
+                          <Pill kind={p.enabled ? 'ok' : 'bad'}>{p.enabled ? 'on' : 'off'}</Pill>
+                        </a>}
                     </td>
                     <td>
                       <div className="ak-row" style={{ gap: 6, justifyContent: 'flex-end' }}>
-                        {e
+                        {p.supplier_managed
+                          ? <span className="ak-muted" style={{ fontSize: 12 }}>{t('admin_go_moxing_terms')}</span>
+                          : e
                           ? <>
                               <button className="ak-btn primary" onClick={() => saveRow(p)}>{t('admin_save')}</button>
                               <button className="ak-btn" onClick={() => cancelEdit(p.model)}>{t('admin_cancel')}</button>
@@ -762,6 +767,212 @@ function CodexAccounts() {
       )}</Async>
     </Card>
   )
+}
+
+function MoxingAccounting() {
+  const { t } = useI18n()
+  const [currency, setCurrency] = useDisplayCurrency()
+  const [days, setDays] = useState(30)
+  const state = useAsync(() => admin.moxingAccounting(days), [days])
+  const [entry, setEntry] = useState({ type: 'topup', amount: '', currency: 'USD', reference: '', note: '' })
+  const [snapshot, setSnapshot] = useState({ amount: '', currency: 'USD', note: '' })
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  async function submitEntry() {
+    const amount = Number(entry.amount)
+    if (!isFinite(amount) || amount === 0 || (entry.type === 'topup' && amount < 0)) return
+    if (!confirm(t('moxing_entry_confirm'))) return
+    setBusy(true); setMsg(null)
+    try {
+      const payload = { amount, currency: entry.currency, reference: entry.reference || null, note: entry.note || null }
+      if (entry.type === 'topup') await admin.moxingTopup(payload)
+      else await admin.moxingAdjustment(payload)
+      setEntry({ ...entry, amount: '', reference: '', note: '' })
+      setMsg(t('moxing_saved'))
+      state.reload()
+    } catch (e: any) { setMsg(`${t('failed')}: ${e?.message || e}`) }
+    finally { setBusy(false) }
+  }
+
+  async function submitSnapshot() {
+    const amount = Number(snapshot.amount)
+    if (!isFinite(amount) || amount < 0) return
+    setBusy(true); setMsg(null)
+    try {
+      await admin.moxingSnapshot({ amount, currency: snapshot.currency, note: snapshot.note || null })
+      setSnapshot({ ...snapshot, amount: '', note: '' })
+      setMsg(t('moxing_saved'))
+      state.reload()
+    } catch (e: any) { setMsg(`${t('failed')}: ${e?.message || e}`) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Async state={state}>{(d: any) => {
+      const rate = Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)
+      const money = (value: any, digits = 2) => fmtDisplayCurrency(value, currency, rate, digits)
+      const account = d.account || {}
+      const period = d.period || {}
+      const totals = d.ledger_totals || {}
+      const snap = d.latest_snapshot
+      return <>
+        <Card title={t('moxing_reconcile_title')} actions={
+          <div className="ak-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {(['usd', 'rmb'] as const).map((value) => (
+              <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
+                onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
+            ))}
+            {[7, 30, 90].map((value) => (
+              <button key={value} className={`ak-btn ${days === value ? 'primary' : ''}`}
+                onClick={() => setDays(value)}>{t(`billing_days_${value}` as TKey)}</button>
+            ))}
+          </div>
+        }>
+          <p className="ak-muted" style={{ marginTop: 0 }}>{t('moxing_reconcile_desc')}</p>
+          <div className="ak-billing-stats">
+            <div className="ak-billing-stat featured"><span>{t('moxing_book_balance')}</span><b>{money(account.balance_micro_usd)}</b><small>{t('moxing_tracking_since')} {fmtTime(account.tracking_started_at)}</small></div>
+            <div className="ak-billing-stat"><span>{t('moxing_total_topups')}</span><b>{money(totals.topups)}</b><small>{t('moxing_adjustments')} {money(totals.adjustments)}</small></div>
+            <div className="ak-billing-stat"><span>{t('moxing_supplier_cost')}</span><b>{money(period.supplier_cost)}</b><small>{fmtCount(period.calls)} {t('billing_calls_unit')}</small></div>
+            <div className="ak-billing-stat"><span>{t('moxing_sales')}</span><b>{money(period.sales)}</b><small>{t('moxing_paid_sales')} {money(period.paid_sales)} · {t('moxing_trial_sales')} {money(period.trial_sales)}</small></div>
+            <div className="ak-billing-stat"><span>{t('moxing_gross_profit')}</span><b>{money(period.gross_profit_micro_usd)}</b><small>{t('moxing_cash_contribution')} {money(period.cash_contribution_micro_usd)}</small></div>
+            <div className="ak-billing-stat"><span>{t('moxing_reported_balance')}</span><b>{snap ? money(snap.reported_balance_micro_usd) : '—'}</b><small>{t('moxing_variance')} {snap ? money(snap.variance_micro_usd) : '—'}</small></div>
+          </div>
+          {(Number(totals.internal_variance_micro_usd || 0) !== 0 || Number(period.accounting_issue_calls || 0) > 0) &&
+            <div className="ak-err" style={{ marginTop: 12 }}>
+              {t('moxing_reconcile_warning')}
+              {Number(totals.internal_variance_micro_usd || 0) !== 0 ? ` · ${t('moxing_internal_variance')} ${money(totals.internal_variance_micro_usd)}` : ''}
+              {Number(period.accounting_issue_calls || 0) > 0 ? ` · ${t('moxing_unpriced')} ${period.accounting_issue_calls}` : ''}
+            </div>}
+        </Card>
+
+        <div className="ak-billing-panels">
+          <Card title={t('moxing_funds_entry')}>
+            <div className="ak-row" style={{ flexWrap: 'wrap' }}>
+              <select className="ak-input" value={entry.type} onChange={(e) => setEntry({ ...entry, type: e.target.value })}>
+                <option value="topup">{t('moxing_topup')}</option>
+                <option value="adjustment">{t('moxing_adjustment')}</option>
+              </select>
+              <input className="ak-input" type="number" value={entry.amount} placeholder={t('moxing_amount')}
+                onChange={(e) => setEntry({ ...entry, amount: e.target.value })} />
+              <select className="ak-input" value={entry.currency} onChange={(e) => setEntry({ ...entry, currency: e.target.value })}>
+                <option>USD</option><option>RMB</option>
+              </select>
+              <input className="ak-input" value={entry.reference} placeholder={t('moxing_reference')}
+                onChange={(e) => setEntry({ ...entry, reference: e.target.value })} />
+              <input className="ak-input" value={entry.note} placeholder={t('moxing_note')}
+                onChange={(e) => setEntry({ ...entry, note: e.target.value })} />
+              <button className="ak-btn primary" disabled={busy || !entry.amount} onClick={submitEntry}>{t('admin_save')}</button>
+            </div>
+            <p className="ak-muted" style={{ fontSize: 12 }}>{t('moxing_immutable_hint')}</p>
+          </Card>
+          <Card title={t('moxing_snapshot_title')}>
+            <div className="ak-row" style={{ flexWrap: 'wrap' }}>
+              <input className="ak-input" type="number" min="0" value={snapshot.amount} placeholder={t('moxing_reported_balance')}
+                onChange={(e) => setSnapshot({ ...snapshot, amount: e.target.value })} />
+              <select className="ak-input" value={snapshot.currency} onChange={(e) => setSnapshot({ ...snapshot, currency: e.target.value })}>
+                <option>USD</option><option>RMB</option>
+              </select>
+              <input className="ak-input" value={snapshot.note} placeholder={t('moxing_note')}
+                onChange={(e) => setSnapshot({ ...snapshot, note: e.target.value })} />
+              <button className="ak-btn primary" disabled={busy || snapshot.amount === ''} onClick={submitSnapshot}>{t('moxing_snapshot_save')}</button>
+            </div>
+            <p className="ak-muted" style={{ fontSize: 12 }}>{t('moxing_snapshot_hint')}</p>
+          </Card>
+        </div>
+        {msg && <div className={msg.startsWith(t('failed')) ? 'ak-err' : 'ak-ok'} style={{ marginBottom: 12 }}>{msg}</div>}
+
+        <Card title={t('moxing_terms_title')}>
+          <p className="ak-muted" style={{ marginTop: 0 }}>{t('moxing_terms_desc')}</p>
+          <div className="ak-table-scroll">
+            <table className="ak-table">
+              <thead><tr><th>{t('admin_col_model')}</th><th>{t('moxing_official_in')}</th><th>{t('moxing_official_out')}</th><th>{t('moxing_cache_read')}</th><th>{t('moxing_cache_write')}</th><th>{t('moxing_supplier_discount')}</th><th>{t('moxing_sale_discount')}</th><th></th></tr></thead>
+              <tbody>{(d.terms || []).map((term: any) => <MoxingTermRow key={term.model} term={term} onSaved={state.reload} />)}</tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card title={t('moxing_daily_reconcile')}>
+          <div className="ak-table-scroll"><table className="ak-table">
+            <thead><tr><th>{t('billing_date')}</th><th>{t('billing_calls')}</th><th>tokens</th><th>{t('moxing_sales')}</th><th>{t('moxing_supplier_cost')}</th><th>{t('moxing_gross_profit')}</th><th>{t('moxing_paid_sales')}</th><th>{t('moxing_trial_sales')}</th></tr></thead>
+            <tbody>{(d.daily || []).map((row: any) => <tr key={String(row.day)}>
+              <td>{String(row.day).slice(0, 10)}</td><td>{fmtCount(row.calls)}</td><td>{fmtCount(row.tokens)}</td>
+              <td>{money(row.sales, 4)}</td><td>{money(row.supplier_cost, 4)}</td><td><b>{money(Number(row.sales || 0) - Number(row.supplier_cost || 0), 4)}</b></td>
+              <td>{money(row.paid_sales, 4)}</td><td>{money(row.trial_sales, 4)}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </Card>
+
+        <Card title={t('moxing_model_reconcile')}>
+          <div className="ak-table-scroll"><table className="ak-table">
+            <thead><tr><th>{t('admin_col_model')}</th><th>{t('moxing_upstream_model')}</th><th>{t('billing_calls')}</th><th>tokens</th><th>{t('moxing_sales')}</th><th>{t('moxing_supplier_cost')}</th><th>{t('moxing_gross_profit')}</th></tr></thead>
+            <tbody>{(d.by_model || []).map((row: any, index: number) => <tr key={`${row.model}-${row.upstream_model}-${index}`}>
+              <td className="ak-mono">{row.model || '—'}</td><td className="ak-mono">{row.upstream_model || '—'}</td><td>{fmtCount(row.calls)}</td><td>{fmtCount(row.tokens)}</td>
+              <td>{money(row.sales, 4)}</td><td>{money(row.supplier_cost, 4)}</td><td><b>{money(Number(row.sales || 0) - Number(row.supplier_cost || 0), 4)}</b></td>
+            </tr>)}</tbody>
+          </table></div>
+        </Card>
+
+        <Card title={t('moxing_request_reconcile')}>
+          <div className="ak-table-scroll"><table className="ak-table">
+            <thead><tr><th>{t('admin_col_time')}</th><th>request_id</th><th>{t('admin_col_user')}</th><th>{t('admin_col_model')}</th><th>{t('moxing_upstream_model')}</th><th>tokens</th><th>{t('moxing_sales')}</th><th>{t('moxing_supplier_cost')}</th><th>{t('moxing_gross_profit')}</th><th>{t('moxing_discount_snapshot')}</th><th>{t('admin_col_status')}</th></tr></thead>
+            <tbody>{(d.recent_usage || []).map((row: any) => <tr key={row.id}>
+              <td className="ak-muted">{fmtTime(row.created_at)}</td><td className="ak-mono ak-muted">{row.request_id || '—'}</td><td>{row.email || '—'}</td><td className="ak-mono">{row.model}</td><td className="ak-mono">{row.upstream_model}</td><td>{fmtCount(row.total_tokens)}</td>
+              <td>{money(row.sales, 4)}</td><td>{money(row.supplier_cost, 4)}</td><td><b>{money(Number(row.sales || 0) - Number(row.supplier_cost || 0), 4)}</b></td>
+              <td className="ak-muted" style={{ fontSize: 11 }}>{t('moxing_supplier_short')} ×{row.supplier_multiplier ?? '—'} · {t('moxing_sale_short')} ×{row.sale_multiplier ?? '—'} · user ×{row.user_multiplier ?? 1}</td>
+              <td><Pill kind={row.supplier_accounting_status === 'posted' ? 'ok' : 'warn'}>{row.supplier_accounting_status}</Pill></td>
+            </tr>)}</tbody>
+          </table></div>
+        </Card>
+
+        <Card title={t('moxing_ledger_title')}>
+          <div className="ak-table-scroll"><table className="ak-table">
+            <thead><tr><th>{t('admin_col_time')}</th><th>{t('admin_col_type')}</th><th>{t('admin_col_amount')}</th><th>{t('moxing_balance_after')}</th><th>{t('admin_col_model')}</th><th>{t('moxing_original_amount')}</th><th>{t('moxing_reference')}</th><th>{t('moxing_note')}</th></tr></thead>
+            <tbody>{(d.ledger || []).map((row: any) => <tr key={row.id}>
+              <td className="ak-muted">{fmtTime(row.created_at)}</td><td>{row.entry_type}</td><td><b>{money(row.amount_micro_usd, 4)}</b></td><td>{money(row.balance_after_micro_usd, 4)}</td><td className="ak-mono">{row.model || '—'}</td>
+              <td>{row.original_amount != null ? `${row.original_currency} ${row.original_amount}` : '—'}</td><td className="ak-mono">{row.reference || row.request_id || '—'}</td><td className="ak-muted">{row.note || '—'}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </Card>
+      </>
+    }}</Async>
+  )
+}
+
+function MoxingTermRow({ term, onSaved }: { term: any; onSaved: () => void }) {
+  const { t } = useI18n()
+  const [form, setForm] = useState({
+    input: Number(term.official_input_micro_usd_per_1k || 0) / 1000,
+    output: Number(term.official_output_micro_usd_per_1k || 0) / 1000,
+    cacheRead: Number(term.official_cache_read_micro_usd_per_1k || 0) / 1000,
+    cacheWrite: Number(term.official_cache_write_micro_usd_per_1k || 0) / 1000,
+    supplierTenths: Number(term.supplier_multiplier || 0) * 10,
+    saleTenths: Number(term.sale_multiplier || 0) * 10,
+  })
+  const [saving, setSaving] = useState(false)
+  async function save() {
+    setSaving(true)
+    try {
+      await admin.moxingTerms(term.model, {
+        display_name: term.display_name,
+        official_input_usd_per_million: form.input,
+        official_output_usd_per_million: form.output,
+        official_cache_read_usd_per_million: form.cacheRead,
+        official_cache_write_usd_per_million: form.cacheWrite,
+        supplier_multiplier: form.supplierTenths / 10,
+        sale_multiplier: form.saleTenths / 10,
+      })
+      onSaved()
+    } finally { setSaving(false) }
+  }
+  const input = (key: keyof typeof form, width = 90) => <input className="ak-input" type="number" step="0.01" min="0"
+    value={form[key]} style={{ width }} onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })} />
+  return <tr>
+    <td><b>{term.display_name || term.model}</b><div className="ak-mono ak-muted">{term.model}</div></td>
+    <td>{input('input')}</td><td>{input('output')}</td><td>{input('cacheRead')}</td><td>{input('cacheWrite')}</td>
+    <td>{input('supplierTenths', 75)} {t('moxing_tenths')}</td><td>{input('saleTenths', 75)} {t('moxing_tenths')}</td>
+    <td><button className="ak-btn primary" disabled={saving} onClick={save}>{saving ? t('submitting') : t('admin_save')}</button></td>
+  </tr>
 }
 
 function UsageBoard() {

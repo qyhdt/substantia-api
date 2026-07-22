@@ -696,8 +696,8 @@ const PRICE_MODELS: Array<{ id: string; multiplier: number; noteKey?: TKey }> = 
   { id: 'claude-sonnet-4-6', multiplier: 0.8 },
   { id: 'claude-haiku-4-5', multiplier: 0.8 },
   { id: 'claude-fable-5', multiplier: 0.8 },
-  { id: 'glm-5.2', multiplier: 0.8, noteKey: 'pricing_glm_note' },
-  { id: 'kimi-k3', multiplier: 1, noteKey: 'pricing_kimi_note' },
+  { id: 'glm-5.2', multiplier: 1 },
+  { id: 'kimi-k3', multiplier: 1 },
 ]
 
 function Prices() {
@@ -712,13 +712,14 @@ function Prices() {
     const value = now(micro)
     return currency === 'rmb' ? `¥${(value * rmbPerUsd).toFixed(2)}` : `$${value.toFixed(2)}`
   }
-  const PriceCell = ({ micro, multiplier }: { micro: any; multiplier: number }) => {
+  const PriceCell = ({ micro, officialMicro }: { micro: any; officialMicro?: any }) => {
     const n = now(micro)
+    const official = officialMicro != null ? now(officialMicro) : n
     const factor = currency === 'rmb' ? rmbPerUsd : 1
     const symbol = currency === 'rmb' ? '¥' : '$'
     return (
       <span>
-        {multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {symbol}{(n / multiplier * factor).toFixed(2)}</span>{' '}</>}
+        {official > n && <><span className="lp-off">{t('pricing_official')} {symbol}{(official * factor).toFixed(2)}</span>{' '}</>}
         <b className="lp-now">{symbol}{(n * factor).toFixed(2)}</b>
       </span>
     )
@@ -758,10 +759,13 @@ function Prices() {
                   <td>
                     <b>{r.display_name || r.model}</b>
                     <div className="ak-mono ak-muted" style={{ fontSize: 12 }}>{r.model}</div>
+                    {r.sale_multiplier != null && <div className="ak-muted" style={{ fontSize: 11 }}>
+                      {t('pricing_sale_discount').replace('{discount}', (Number(r.sale_multiplier) * 10).toFixed(1))}
+                    </div>}
                     {r.priceMeta.noteKey && <div className="ak-muted" style={{ fontSize: 11 }}>{t(r.priceMeta.noteKey)}</div>}
                   </td>
-                  <td><PriceCell micro={r.input_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} /></td>
-                  <td><PriceCell micro={r.output_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} /></td>
+                  <td><PriceCell micro={r.input_micro_usd_per_1k} officialMicro={r.official_input_micro_usd_per_1k ?? r.input_micro_usd_per_1k / r.priceMeta.multiplier} /></td>
+                  <td><PriceCell micro={r.output_micro_usd_per_1k} officialMicro={r.official_output_micro_usd_per_1k ?? r.output_micro_usd_per_1k / r.priceMeta.multiplier} /></td>
                   <td className="ak-muted">{perMillion(r.cache_read_micro_usd_per_1k)}</td>
                   <td className="ak-muted">{perMillion(r.cache_write_micro_usd_per_1k)}</td>
                 </tr>

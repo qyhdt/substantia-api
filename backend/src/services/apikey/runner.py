@@ -42,6 +42,7 @@ class RunnerResult:
         auth_failed: bool,
         attempts: int,
         estimated: bool,
+        upstream_model: Optional[str] = None,
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
     ):
@@ -57,6 +58,7 @@ class RunnerResult:
         self.auth_failed = auth_failed
         self.attempts = attempts
         self.estimated = estimated  # token 是否为字符估算（解析失败兜底）
+        self.upstream_model = upstream_model
 
     @property
     def ok(self) -> bool:
@@ -182,6 +184,7 @@ def _exec_json(slot: Slot, user_id: str, prompt: str, model: str) -> RunnerResul
         prompt_tokens=in_tok, completion_tokens=out_tok,
         cache_read_tokens=cache_read, cache_write_tokens=cache_write,
         exit_code=res.exit_code, auth_failed=auth_failed, attempts=1, estimated=estimated,
+        upstream_model=(slot.env.get("ANTHROPIC_MODEL") if slot.type == SlotType.API_KEY else None),
     )
 
 

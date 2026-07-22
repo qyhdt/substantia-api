@@ -58,6 +58,11 @@ export const auth = {
   me: () => api.get('/portal/me'),
 }
 
+// ---------- 官网公开数据 ----------
+export const publicApi = {
+  prices: () => api.get('/public/prices'),
+}
+
 // ---------- 用户端 ----------
 export const portal = {
   me: () => api.get('/portal/me'),
@@ -106,6 +111,11 @@ export const admin = {
   prices: () => api.get('/admin/model-prices'),
   upsertPrice: (payload: any) => api.post('/admin/model-prices', payload),
   usageSummary: (days = 7) => api.get(`/admin/usage/summary?days=${days}`),
+  moxingAccounting: (days = 30, limit = 100) => api.get(`/admin/moxing/accounting?days=${days}&limit=${limit}`),
+  moxingTopup: (payload: any) => api.post('/admin/moxing/topups', payload),
+  moxingAdjustment: (payload: any) => api.post('/admin/moxing/adjustments', payload),
+  moxingSnapshot: (payload: any) => api.post('/admin/moxing/snapshots', payload),
+  moxingTerms: (model: string, payload: any) => api.put(`/admin/moxing/terms/${encodeURIComponent(model)}`, payload),
   // 上游 slot / 容器（容器团队接口）
   slots: () => api.get('/admin/claude/slots'),
   upsertSlot: (id: string, payload: any) => api.put(`/admin/claude/slots/${id}`, payload),

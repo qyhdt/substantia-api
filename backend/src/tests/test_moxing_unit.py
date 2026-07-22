@@ -2,6 +2,7 @@
 """moxing 公开模型与用户路由标签测试（不访问网络/数据库）。"""
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from decimal import Decimal
 
 import pytest
 
@@ -9,6 +10,7 @@ from config.settings import settings
 from controller import gateway
 from controller.gateway import ChatCompletionsIn, _force_glm_for_user
 from services.moxing import provider as moxing
+from services.apikey import moxing_accounting as accounting
 
 
 def test_direct_model_detection():
@@ -48,6 +50,70 @@ def test_moxing_usage_splits_cached_input():
         }
     }
     assert moxing.usage(data) == (100, 30, 20)
+
+
+def test_moxing_accounting_model_and_slot_detection():
+    assert accounting.canonical_model("GLM-5.2[1m]") == "glm-5.2"
+    assert accounting.canonical_model(" kimi-k3 ") == "kimi-k3"
+    assert accounting.is_moxing_slot("direct-moxing")
+    assert accounting.is_moxing_slot("fallback-moxing")
+    assert not accounting.is_moxing_slot("fallback-gemini")
+
+
+def test_moxing_supplier_cost_uses_official_price_and_business_discount():
+    term = {
+        "official_input_micro_usd_per_1k": 1400,
+        "official_output_micro_usd_per_1k": 4400,
+        "official_cache_read_micro_usd_per_1k": 260,
+        "official_cache_write_micro_usd_per_1k": 1400,
+        "supplier_multiplier": Decimal("0.9"),
+    }
+    official, supplier = accounting.usage_cost(
+        term, prompt_tokens=1000, completion_tokens=100,
+        cache_read_tokens=500, cache_write_tokens=0,
+    )
+    assert official == 1400 + 440 + 130
+    assert supplier == 1773
+
+
+@pytest.mark.asyncio
+async def test_moxing_request_posts_supplier_ledger_and_balance():
+    class Conn:
+        def __init__(self):
+            self.executed = []
+
+        async def fetchrow(self, query, *args):
+            if "SELECT * FROM ak_supplier_model_terms" in query:
+                return {
+                    "official_input_micro_usd_per_1k": 1400,
+                    "official_output_micro_usd_per_1k": 4400,
+                    "official_cache_read_micro_usd_per_1k": 260,
+                    "official_cache_write_micro_usd_per_1k": 1400,
+                    "supplier_multiplier": Decimal("0.9"),
+                }
+            if "SELECT sale_multiplier" in query:
+                return {"sale_multiplier": Decimal("0.8")}
+            if "SELECT balance_micro_usd" in query:
+                return {"balance_micro_usd": 10_000_000}
+            raise AssertionError(query)
+
+        async def execute(self, query, *args):
+            self.executed.append((query, args))
+            return "OK"
+
+    conn = Conn()
+    result = await accounting.record_usage(
+        conn, usage_log_id=99, slot_id="direct-moxing", public_model="glm-5.2",
+        upstream_model="glm-5.2", prompt_tokens=1000, completion_tokens=100,
+        cache_read_tokens=0, cache_write_tokens=0, request_id="req-1", user_multiplier=1,
+        request_status="ok",
+    )
+    assert result["official_cost_micro_usd"] == 1840
+    assert result["supplier_cost_micro_usd"] == 1656
+    assert result["supplier_balance_after_micro_usd"] == 9_998_344
+    ledger = next(item for item in conn.executed if "INSERT INTO ak_supplier_ledger" in item[0])
+    assert ledger[1][1] == -1656
+    assert ledger[1][2] == 9_998_344
 
 
 @pytest.mark.asyncio

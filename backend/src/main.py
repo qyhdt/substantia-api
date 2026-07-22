@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
 from config.version import APP_NAME
-from controller import admin_apikey, auth, claude, codex, example, gateway, health, portal, uploads, webhooks
+from controller import admin_apikey, auth, claude, codex, example, gateway, health, portal, public, uploads, webhooks
 from frame.base_api_route import BaseAPIRoute
 from frame.error_handler import register_exception_handlers
 from utils.fastapi_request_context import RequestContextMiddleware
@@ -146,6 +146,7 @@ app.include_router(codex.admin_router, prefix="/api")   # /api/admin/codex/*（C
 
 # APIKey 分发系统（下游令牌 / 门户 / 管理 / 网关）
 app.include_router(auth.router, prefix="/api")
+app.include_router(public.router, prefix="/api")
 app.include_router(portal.router, prefix="/api")
 app.include_router(admin_apikey.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")   # /api/uploads/{name} 回读凭证

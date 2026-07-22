@@ -16,8 +16,15 @@ from utils.pm_logger import get_app_logger
 log = get_app_logger()
 
 
-async def list_prices() -> List[Dict[str, Any]]:
-    rows = await db_util.fetch("SELECT * FROM ak_model_prices ORDER BY model")
+async def list_prices(*, include_supplier_terms: bool = False) -> List[Dict[str, Any]]:
+    private_fields = ", t.supplier, t.supplier_multiplier" if include_supplier_terms else ""
+    rows = await db_util.fetch(
+        "SELECT p.*, (t.supplier IS NOT NULL) AS supplier_managed, t.sale_multiplier, "
+        "t.official_input_micro_usd_per_1k, t.official_output_micro_usd_per_1k, "
+        f"t.official_cache_read_micro_usd_per_1k, t.official_cache_write_micro_usd_per_1k{private_fields} "
+        "FROM ak_model_prices p LEFT JOIN ak_supplier_model_terms t ON t.model=p.model "
+        "AND t.supplier='moxing' ORDER BY p.model"
+    )
     return [dict(r) for r in rows]
 
 
