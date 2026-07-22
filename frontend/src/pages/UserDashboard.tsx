@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
-  fmtCnyFromMicroUsd, fmtModelCost, fmtUsd, isChinaModel, portal, RMB_PER_USD_FALLBACK,
+  fmtCnyFromMicroUsd, fmtUsd, portal, RMB_PER_USD_FALLBACK,
 } from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 import { useI18n, type TKey } from '../i18n'
 import { BRAND } from '../brand'
 import { readParam, pushParams, hrefFor } from '../nav'
+import { fmtDisplayCurrency, useDisplayCurrency } from '../currency'
 
 // 两种协议：Anthropic 兼容 + OpenAI 兼容。同一把 sk-key 通用。
 type Fmt = 'anthropic' | 'openai'
@@ -61,6 +62,43 @@ const CODE_LANGS: Array<{ id: CodeLang; label: string; file: string }> = [
   { id: 'go', label: 'Go', file: 'main.go' },
   { id: 'php', label: 'PHP', file: 'example.php' },
 ]
+
+const CODE_KEYWORDS: Record<CodeLang, string[]> = {
+  python: ['as', 'class', 'def', 'else', 'except', 'false', 'finally', 'for', 'from', 'if', 'import', 'in', 'none', 'return', 'true', 'try', 'with'],
+  java: ['boolean', 'class', 'else', 'false', 'final', 'if', 'import', 'int', 'new', 'null', 'public', 'return', 'static', 'string', 'throws', 'true', 'void'],
+  nodejs: ['async', 'await', 'catch', 'const', 'else', 'false', 'function', 'if', 'let', 'new', 'null', 'return', 'throw', 'true'],
+  go: ['defer', 'else', 'false', 'for', 'func', 'if', 'import', 'map', 'nil', 'package', 'range', 'return', 'string', 'true', 'var'],
+  php: ['array', 'catch', 'echo', 'else', 'false', 'function', 'if', 'new', 'null', 'return', 'throw', 'true', 'use'],
+}
+
+function highlightedCode(code: string, lang: CodeLang) {
+  const keywords = CODE_KEYWORDS[lang].join('|')
+  const tokenPattern = new RegExp(
+    `("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|//[^\\n]*|#[^\\n]*|/\\*[\\s\\S]*?\\*/|\\$[A-Za-z_]\\w*|\\b(?:${keywords})\\b|\\b\\d+(?:\\.\\d+)?\\b)`,
+    'gim',
+  )
+  const nodes = []
+  let cursor = 0
+  let match: RegExpExecArray | null
+  while ((match = tokenPattern.exec(code)) !== null) {
+    if (match.index > cursor) nodes.push(code.slice(cursor, match.index))
+    const token = match[0]
+    const lower = token.toLowerCase()
+    const kind = token.startsWith('//') || token.startsWith('#') || token.startsWith('/*')
+      ? 'comment'
+      : token.startsWith('"') || token.startsWith("'")
+        ? 'string'
+        : token.startsWith('$')
+          ? 'variable'
+          : /^\d/.test(token)
+            ? 'number'
+            : CODE_KEYWORDS[lang].includes(lower) ? 'keyword' : 'plain'
+    nodes.push(<span className={`ak-code-${kind}`} key={`${match.index}-${token}`}>{token}</span>)
+    cursor = tokenPattern.lastIndex
+  }
+  if (cursor < code.length) nodes.push(code.slice(cursor))
+  return nodes
+}
 
 function codeSnippet(lang: CodeLang, key: string, model: string): string {
   const url = `https://${BRAND.apiHost}/v1/chat/completions`
@@ -451,7 +489,7 @@ function Keys({ justIssued }: { justIssued?: string }) {
             {copiedBtn === `code-${codeLang}` && <span className="ak-ok" style={{ fontSize: 13 }}>✓ {t('copy_success')}</span>}
           </div>
         </div>
-        <pre className="ak-mono ak-code-example">{codeSnippet(codeLang, banner || '<你的 sk-key>', model.id)}</pre>
+        <pre className="ak-mono ak-code-example"><code>{highlightedCode(codeSnippet(codeLang, banner || '<你的 sk-key>', model.id), codeLang)}</code></pre>
       </Card>
 
       <Card title={t('card_cursor')}>
@@ -541,6 +579,7 @@ const fmtCount = (value: any) => new Intl.NumberFormat().format(Number(value || 
 
 function Bills() {
   const { t } = useI18n()
+  const [currency, setCurrency] = useDisplayCurrency()
   const [days, setDays] = useState(7)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
@@ -551,6 +590,10 @@ function Bills() {
     <>
       <Card title={t('billing_overview')} actions={
         <div className="ak-row" style={{ gap: 6 }}>
+          {(['usd', 'rmb'] as const).map((value) => (
+            <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
+              onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
+          ))}
           {[7, 30, 90].map((value) => (
             <button key={value} className={`ak-btn ${days === value ? 'primary' : ''}`}
               onClick={() => pickDays(value)}>{t(`billing_days_${value}` as TKey)}</button>
@@ -561,12 +604,12 @@ function Bills() {
           const rate = Number(data.rmb_per_usd || RMB_PER_USD_FALLBACK)
           const models = data.by_model || []
           const maxCost = Math.max(1, ...models.map((row: any) => Number(row.cost || 0)))
+          const totalCost = Number(data.overseas_cost_micro_usd || 0) + Number(data.china_cost_micro_usd || 0)
           return (<>
             <div className="ak-billing-stats">
               <div className="ak-billing-stat featured">
                 <span>{t('billing_total_cost')}</span>
-                <b>{fmtUsd(data.overseas_cost_micro_usd)}</b>
-                <strong>+ {fmtCnyFromMicroUsd(data.china_cost_micro_usd, rate, 2)}</strong>
+                <b>{fmtDisplayCurrency(totalCost, currency, rate, 4)}</b>
                 <small>{t('billing_currency_note')}</small>
               </div>
               <div className="ak-billing-stat"><span>{t('billing_calls')}</span><b>{fmtCount(data.total_calls)}</b></div>
@@ -586,7 +629,7 @@ function Bills() {
                     <div className="ak-model-cost" key={row.model}>
                       <div className="ak-row" style={{ justifyContent: 'space-between' }}>
                         <span><b>{row.model}</b> <small>{fmtCount(row.calls)} {t('billing_calls_unit')}</small></span>
-                        <strong>{fmtModelCost(row.model, row.cost, rate)}</strong>
+                        <strong>{fmtDisplayCurrency(row.cost, currency, rate)}</strong>
                       </div>
                       <div className="ak-cost-track"><i style={{ width: `${Math.max(2, Number(row.cost || 0) / maxCost * 100)}%` }} /></div>
                     </div>
@@ -598,14 +641,14 @@ function Bills() {
                 <h4>{t('billing_daily')}</h4>
                 <div className="ak-table-scroll">
                   <table className="ak-table">
-                    <thead><tr><th>{t('billing_date')}</th><th>{t('billing_calls')}</th><th>{t('billing_overseas')}</th><th>{t('billing_china')}</th></tr></thead>
+                    <thead><tr><th>{t('billing_date')}</th><th>{t('billing_calls')}</th><th>{t('billing_tokens')}</th><th>{t('col_cost')} ({currency.toUpperCase()})</th></tr></thead>
                     <tbody>
                       {(data.daily || []).map((row: any) => (
                         <tr key={String(row.day)}>
                           <td>{String(row.day).slice(0, 10)}</td>
                           <td>{fmtCount(row.calls)}</td>
-                          <td>{fmtUsd(row.overseas_cost)}</td>
-                          <td>{fmtCnyFromMicroUsd(row.china_cost, rate)}</td>
+                          <td>{fmtCount(row.tokens)}</td>
+                          <td><b>{fmtDisplayCurrency(Number(row.overseas_cost || 0) + Number(row.china_cost || 0), currency, rate)}</b></td>
                         </tr>
                       ))}
                       {(data.daily || []).length === 0 && <tr><td colSpan={4} className="ak-muted">{t('empty_usage')}</td></tr>}
@@ -627,10 +670,10 @@ function Bills() {
               {(data.items || []).map((r: any) => (
                 <tr key={r.id}>
                   <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
-                  <td><b>{r.model}</b><div className="ak-muted" style={{ fontSize: 11 }}>CNY</div></td>
+                  <td><b>{r.model}</b></td>
                   <td className="ak-mono">{r.slot_id || '—'}</td>
                   <td>{fmtCount(r.total_tokens)} <span className="ak-muted">({fmtCount(r.prompt_tokens)}+{fmtCount(r.completion_tokens)})</span></td>
-                  <td><b>{fmtCnyFromMicroUsd(r.cost_micro_usd, summary.data?.rmb_per_usd)}</b></td>
+                  <td><b>{fmtDisplayCurrency(r.cost_micro_usd, currency, Number(summary.data?.rmb_per_usd || RMB_PER_USD_FALLBACK))}</b></td>
                   <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status}</Pill></td>
                 </tr>
               ))}
@@ -659,19 +702,20 @@ const PRICE_MODELS: Array<{ id: string; multiplier: number; noteKey?: TKey }> = 
 
 function Prices() {
   const { t } = useI18n()
+  const [currency, setCurrency] = useDisplayCurrency()
   const state = useAsync(() => portal.prices(), [])
   const config = useAsync(() => portal.rechargeEnabled(), [])
   const rmbPerUsd = Number(config.data?.rmb_per_usd || RMB_PER_USD_FALLBACK)
   // 库里存的是 micro-USD / 1k token（已是实付价）；换算成 $ / 百万 token：micro_per_1k / 1000。
   const now = (v: any) => Number(v || 0) / 1000
-  const perMillion = (micro: any, model: string) => {
+  const perMillion = (micro: any) => {
     const value = now(micro)
-    return isChinaModel(model) ? `¥${(value * rmbPerUsd).toFixed(2)}` : `$${value.toFixed(2)}`
+    return currency === 'rmb' ? `¥${(value * rmbPerUsd).toFixed(2)}` : `$${value.toFixed(2)}`
   }
-  const PriceCell = ({ micro, multiplier, model }: { micro: any; multiplier: number; model: string }) => {
+  const PriceCell = ({ micro, multiplier }: { micro: any; multiplier: number }) => {
     const n = now(micro)
-    const factor = isChinaModel(model) ? rmbPerUsd : 1
-    const symbol = isChinaModel(model) ? '¥' : '$'
+    const factor = currency === 'rmb' ? rmbPerUsd : 1
+    const symbol = currency === 'rmb' ? '¥' : '$'
     return (
       <span>
         {multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {symbol}{(n / multiplier * factor).toFixed(2)}</span>{' '}</>}
@@ -680,7 +724,14 @@ function Prices() {
     )
   }
   return (
-    <Card title={t('card_prices')}>
+    <Card title={t('card_prices')} actions={
+      <div className="ak-row" style={{ gap: 6 }}>
+        {(['usd', 'rmb'] as const).map((value) => (
+          <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
+            onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
+        ))}
+      </div>
+    }>
       <p className="ak-muted" style={{ marginTop: 0 }}>{t('prices_note')}</p>
       <p className="ak-muted" style={{ marginTop: -6, fontSize: 12 }}>
         {t('billing_exchange_rate')}: 1 USD ≈ {rmbPerUsd.toFixed(4)} CNY
@@ -707,13 +758,12 @@ function Prices() {
                   <td>
                     <b>{r.display_name || r.model}</b>
                     <div className="ak-mono ak-muted" style={{ fontSize: 12 }}>{r.model}</div>
-                    <div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(r.model) ? 'CNY' : 'USD'}</div>
                     {r.priceMeta.noteKey && <div className="ak-muted" style={{ fontSize: 11 }}>{t(r.priceMeta.noteKey)}</div>}
                   </td>
-                  <td><PriceCell micro={r.input_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} model={r.model} /></td>
-                  <td><PriceCell micro={r.output_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} model={r.model} /></td>
-                  <td className="ak-muted">{perMillion(r.cache_read_micro_usd_per_1k, r.model)}</td>
-                  <td className="ak-muted">{perMillion(r.cache_write_micro_usd_per_1k, r.model)}</td>
+                  <td><PriceCell micro={r.input_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} /></td>
+                  <td><PriceCell micro={r.output_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} /></td>
+                  <td className="ak-muted">{perMillion(r.cache_read_micro_usd_per_1k)}</td>
+                  <td className="ak-muted">{perMillion(r.cache_write_micro_usd_per_1k)}</td>
                 </tr>
               ))}
               {list.length === 0 && <tr><td colSpan={5} className="ak-muted">—</td></tr>}

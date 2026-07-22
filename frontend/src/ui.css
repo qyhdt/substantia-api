@@ -54,6 +54,19 @@ a.ak-tab:hover, a.ak-side-item:hover { text-decoration: none; }
   border: 1px solid var(--border); border-radius: 10px; background: #111827; color: #e5e7eb;
   line-height: 1.65; font-size: 12px;
 }
+.ak-code-comment { color: #7dd3fc; font-style: italic; }
+.ak-code-keyword { color: #c084fc; font-weight: 700; }
+.ak-code-string { color: #86efac; }
+.ak-code-number { color: #fbbf24; }
+.ak-code-variable { color: #67e8f9; }
+.ak-code-plain { color: inherit; }
+.ak-admin-chart { width: 100%; overflow-x: auto; }
+.ak-admin-chart svg { display: block; width: 100%; min-width: 620px; height: auto; }
+.ak-chart-grid { stroke: var(--border); stroke-width: 1; }
+.ak-chart-label { fill: var(--muted); font-size: 11px; }
+.ak-chart-area { fill: rgba(37, 99, 235, .12); }
+.ak-chart-line { fill: none; stroke: #2563eb; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.ak-chart-point { fill: #14b8a6; stroke: #fff; stroke-width: 2; }
 
 /* 左侧菜单 + 右侧内容（admin 与用户控制台共用） */
 .ak-sidelayout { display: flex; gap: 20px; align-items: flex-start; }
