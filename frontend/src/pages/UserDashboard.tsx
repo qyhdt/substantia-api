@@ -90,6 +90,8 @@ function ModelPicker({ model, onPick }: { model: ModelInfo; onPick: (m: ModelInf
 
 const USER_TABS = ['keys', 'pricing', 'usage', 'topups'] as const
 type UTab = typeof USER_TABS[number]
+const KEY_SECTIONS = ['manage', 'guide'] as const
+type KeySection = typeof KEY_SECTIONS[number]
 
 export function UserDashboard({ newKey }: { newKey?: string }) {
   const { t } = useI18n()
@@ -129,6 +131,8 @@ export function UserDashboard({ newKey }: { newKey?: string }) {
 
 function Keys({ justIssued }: { justIssued?: string }) {
   const { t } = useI18n()
+  const [keySection, setKeySection] = useState<KeySection>(() =>
+    justIssued ? 'manage' : readParam('keytab', KEY_SECTIONS, 'manage') as KeySection)
   const state = useAsync(() => portal.keys(), [])
   const [banner, setBanner] = useState<string | null>(justIssued || null)
   const [name, setName] = useState('default')
@@ -140,6 +144,17 @@ function Keys({ justIssued }: { justIssued?: string }) {
   const [hint, setHint] = useState<string | null>(null)
   const [copiedBtn, setCopiedBtn] = useState<string | null>(null) // 哪个「一键复制」刚成功（按钮旁内联提示）
   const [model, setModel] = useState<ModelInfo>(MODELS[0])  // 示例展示用的模型
+
+  useEffect(() => {
+    const onPop = () => setKeySection(readParam('keytab', KEY_SECTIONS, 'manage') as KeySection)
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  function goKeySection(section: KeySection) {
+    setKeySection(section)
+    pushParams({ view: 'user', tab: 'keys', keytab: section })
+  }
 
   function flashCopied(btnKey: string) {
     setCopiedBtn(btnKey)
@@ -197,6 +212,16 @@ function Keys({ justIssued }: { justIssued?: string }) {
 
   return (
     <>
+      <div className="ak-tabs ak-key-subtabs">
+        {KEY_SECTIONS.map((section) => (
+          <a key={section} className={`ak-tab ${keySection === section ? 'active' : ''}`}
+            href={hrefFor({ view: 'user', tab: 'keys', keytab: section })}
+            onClick={(event) => { event.preventDefault(); goKeySection(section) }}>
+            {t(section === 'manage' ? 'keytab_manage' : 'keytab_guide')}
+          </a>
+        ))}
+      </div>
+
       {banner && (
         <div className="ak-keybanner">
           <div className="ak-row" style={{ justifyContent: 'space-between' }}>
@@ -206,6 +231,9 @@ function Keys({ justIssued }: { justIssued?: string }) {
           <div className="ak-mono" style={{ marginTop: 6 }}>{banner}</div>
         </div>
       )}
+      {hint && <div className="ak-ok" style={{ marginBottom: 8 }}>{hint}</div>}
+
+      {keySection === 'manage' && <>
       <Card title={t('card_newkey')} actions={
         <div className="ak-row">
           <input className="ak-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('key_name_ph')} />
@@ -213,7 +241,6 @@ function Keys({ justIssued }: { justIssued?: string }) {
         </div>
       }>
         <p className="ak-muted">{t('newkey_desc_1')}<b>Anthropic</b>{t('newkey_desc_2')}<b>OpenAI</b>{t('newkey_desc_3')}</p>
-        {hint && <div className="ak-ok" style={{ marginBottom: 8 }}>{hint}</div>}
         <ModelPicker model={model} onPick={setModel} />
         {(['anthropic', 'openai'] as Fmt[]).map((fmt) => {
           const e = ENDPOINTS[fmt]
@@ -272,6 +299,9 @@ function Keys({ justIssued }: { justIssued?: string }) {
         )}</Async>
       </Card>
 
+      </>}
+
+      {keySection === 'guide' && <>
       <Card title={t('card_cursor')}>
         <p className="ak-muted">{t('cursor_desc_1')}<b>{t('openai_compat')}</b>{t('cursor_desc_2')}<b>Chat</b>{t('cursor_desc_3')}<b>Agent</b>{t('cursor_desc_4')}</p>
         <ModelPicker model={model} onPick={setModel} />
@@ -329,6 +359,7 @@ function Keys({ justIssued }: { justIssued?: string }) {
           {copiedBtn === 'cli-settings' && <span className="ak-ok" style={{ fontSize: 13, alignSelf: 'center' }}>✓ {t('copy_success')}</span>}
         </div>
       </Card>
+      </>}
 
       {pick && pickBuild && (
         <div className="ak-modal-bg" onClick={() => setPick(null)}>
