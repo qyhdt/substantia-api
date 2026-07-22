@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { admin, fmtUsd } from '../api'
+import { admin, fmtModelCost, fmtUsd, isChinaModel, RMB_PER_USD_FALLBACK } from '../api'
 import { Async, Card, Pill, useAsync } from '../components/common'
 import { readParam, pushParams, hrefFor } from '../nav'
 import { useI18n, type TKey } from '../i18n'
@@ -247,6 +247,7 @@ function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => v
         <Async state={state}>{(d: any) => {
           const u = d.user || {}
           const s = d.spend || {}
+          const rmbPerUsd = Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)
           return (
             <>
               <div className="ak-detail-grid">
@@ -271,11 +272,11 @@ function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => v
                 <tbody>
                   {(s.by_model || []).map((m: any, i: number) => (
                     <tr key={i}>
-                      <td className="ak-mono">{m.model || '—'}</td>
+                      <td className="ak-mono">{m.model || '—'}<div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(m.model) ? 'CNY' : 'USD'}</div></td>
                       <td>{m.calls}</td>
                       <td>{m.prompt_tokens || 0}</td>
                       <td>{m.completion_tokens || 0}</td>
-                      <td>{fmtUsd(m.cost)}</td>
+                      <td>{fmtModelCost(m.model, m.cost, rmbPerUsd)}</td>
                     </tr>
                   ))}
                   {(s.by_model || []).length === 0 && <tr><td colSpan={5} className="ak-muted">{t('admin_empty_spend')}</td></tr>}
@@ -306,10 +307,10 @@ function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => v
                   {(d.recent_usage || []).map((r: any) => (
                     <tr key={r.id}>
                       <td className="ak-muted">{fmtTime(r.created_at)}</td>
-                      <td className="ak-mono">{r.model || '—'}</td>
+                      <td className="ak-mono">{r.model || '—'}<div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(r.model) ? 'CNY' : 'USD'}</div></td>
                       <td className="ak-mono ak-muted">{r.slot_id || '—'}</td>
                       <td>{r.total_tokens || 0}</td>
-                      <td>{fmtUsd(r.cost_micro_usd)}</td>
+                      <td>{fmtModelCost(r.model, r.cost_micro_usd, rmbPerUsd)}</td>
                       <td><Pill kind={r.status === 'ok' ? 'ok' : 'bad'}>{r.status || '—'}</Pill></td>
                     </tr>
                   ))}
@@ -759,7 +760,12 @@ function UsageBoard() {
   return (
     <Async state={state}>{(d: any) => (
       <>
-        <Card title={t('admin_group_model')}><Agg rows={d.by_model} keyCol="model" /></Card>
+        <Card title={t('admin_group_model')}>
+          <p className="ak-muted" style={{ marginTop: 0 }}>
+            {t('admin_model_currency_note')} · 1 USD ≈ {Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK).toFixed(4)} CNY
+          </p>
+          <Agg rows={d.by_model} keyCol="model" rmbPerUsd={d.rmb_per_usd} />
+        </Card>
         <Card title={t('admin_group_user')}><Agg rows={d.by_user} keyCol="email" /></Card>
         <Card title={t('admin_group_slot')}><Agg rows={d.by_slot} keyCol="slot_id" /></Card>
       </>
@@ -767,7 +773,7 @@ function UsageBoard() {
   )
 }
 
-function Agg({ rows, keyCol }: { rows: any[]; keyCol: string }) {
+function Agg({ rows, keyCol, rmbPerUsd = RMB_PER_USD_FALLBACK }: { rows: any[]; keyCol: string; rmbPerUsd?: number }) {
   const { t } = useI18n()
   return (
     <table className="ak-table">
@@ -775,10 +781,13 @@ function Agg({ rows, keyCol }: { rows: any[]; keyCol: string }) {
       <tbody>
         {(rows || []).map((r, i) => (
           <tr key={i}>
-            <td className="ak-mono">{r[keyCol] || '—'}</td>
+            <td className="ak-mono">
+              {r[keyCol] || '—'}
+              {keyCol === 'model' && <div className="ak-muted" style={{ fontSize: 11 }}>{isChinaModel(r.model) ? 'CNY' : 'USD'}</div>}
+            </td>
             <td>{r.calls}</td>
             <td>{r.tokens || 0}</td>
-            <td>{fmtUsd(r.cost)}</td>
+            <td>{keyCol === 'model' ? fmtModelCost(r.model, r.cost, Number(rmbPerUsd)) : fmtUsd(r.cost)}</td>
           </tr>
         ))}
         {(rows || []).length === 0 && <tr><td colSpan={4} className="ak-muted">{t('admin_empty_data')}</td></tr>}

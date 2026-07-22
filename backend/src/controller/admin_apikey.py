@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from config.settings import settings
 from security.admin import require_admin
 from services.apikey import keys as keys_svc
+from services.apikey import fx
 from services.apikey import payments as payments_svc
 from services.apikey import pricing as pricing_svc
 from services.apikey import topups as topups_svc
@@ -120,6 +121,13 @@ async def user_detail(user_id: int, admin: dict = Depends(require_admin)):
     detail = await users_svc.user_detail(user_id)
     if not detail:
         raise HTTPException(status_code=404, detail="user not found")
+    exchange = await fx.current_usd_cny()
+    detail.update({
+        "rmb_per_usd": exchange["rate"],
+        "rmb_rate_date": exchange["date"],
+        "rmb_rate_source": exchange["source"],
+        "rmb_rate_live": exchange["live"],
+    })
     return detail
 
 
@@ -216,7 +224,15 @@ async def upsert_price(payload: PriceIn):
 # ============================== 用量看板 ==============================
 @router.get("/usage/summary", summary="用量看板聚合")
 async def usage_summary():
-    return await usage_svc.admin_summary()
+    result = await usage_svc.admin_summary()
+    exchange = await fx.current_usd_cny()
+    result.update({
+        "rmb_per_usd": exchange["rate"],
+        "rmb_rate_date": exchange["date"],
+        "rmb_rate_source": exchange["source"],
+        "rmb_rate_live": exchange["live"],
+    })
+    return result
 
 
 # ============================== 上游 slot / 容器 ==============================

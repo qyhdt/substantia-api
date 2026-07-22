@@ -367,6 +367,7 @@ const DICT = {
     admin_login_card_title: '登录新增订阅账号（网页终端）',
     admin_login_add_btn: '➕ 登录新增订阅账号',
     admin_group_model: '按模型',
+    admin_model_currency_note: '国内模型按人民币显示，海外模型按美元显示',
     admin_group_user: '按用户',
     admin_group_slot: '按 slot',
     // 用户详情弹窗
@@ -797,6 +798,7 @@ const DICT = {
     admin_login_card_title: 'Log in to add a subscription account (web terminal)',
     admin_login_add_btn: '➕ Log in to add subscription account',
     admin_group_model: 'By model',
+    admin_model_currency_note: 'Chinese models in CNY; overseas models in USD',
     admin_group_user: 'By user',
     admin_group_slot: 'By slot',
     // user detail modal
