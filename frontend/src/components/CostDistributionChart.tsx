@@ -1,5 +1,8 @@
+import { lazy, Suspense } from 'react'
 import { fmtDisplayCurrency, type DisplayCurrency } from '../currency'
 import { useI18n } from '../i18n'
+
+const EChart = lazy(() => import('./EChart').then((module) => ({ default: module.EChart })))
 
 const fmtCount = (value: unknown) => new Intl.NumberFormat().format(Number(value || 0))
 
@@ -18,17 +21,50 @@ export function CostDistributionChart({ rows, labelKey, currency, rmbPerUsd }: {
   }
   const total = top.reduce((sum, row) => sum + Number(row.cost || 0), 0)
   if (!total) return <p className="ak-muted">{t('admin_empty_data')}</p>
+  const chartLabel = labelKey === 'model' ? t('admin_model_distribution') : t('admin_channel_distribution')
 
-  let cursor = 0
-  const stops = top.map((row, index) => {
-    const start = cursor
-    cursor += Number(row.cost || 0) / total * 100
-    return `${palette[index % palette.length]} ${start}% ${cursor}%`
-  }).join(', ')
+  const chartData = top.map((row, index) => ({
+    name: String(row[labelKey] || '—'),
+    value: Number(row.cost || 0),
+    itemStyle: { color: palette[index % palette.length] },
+  }))
+  const byName = new Map(chartData.map((row) => [row.name, row.value]))
+  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[char] || char))
+  const option = {
+    animationDuration: 700,
+    animationEasing: 'cubicOut' as const,
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: 'rgba(17, 24, 39, .94)',
+      borderWidth: 0,
+      textStyle: { color: '#f9fafb' },
+      formatter: (params: any) => {
+        const name = String(params?.name || '—')
+        const value = byName.get(name) || 0
+        return `<b>${escapeHtml(name)}</b><br/>${Number(params?.percent || 0).toFixed(1)}% · ${fmtDisplayCurrency(value, currency, rmbPerUsd)}`
+      },
+    },
+    series: [{
+      type: 'pie',
+      radius: ['58%', '82%'],
+      center: ['50%', '50%'],
+      avoidLabelOverlap: true,
+      label: { show: false },
+      labelLine: { show: false },
+      itemStyle: { borderColor: '#ffffff', borderWidth: 3, borderRadius: 6 },
+      emphasis: { scale: true, scaleSize: 8 },
+      data: chartData,
+    }],
+  }
 
   return <div className="ak-donut-layout">
-    <div className="ak-donut" style={{ background: `conic-gradient(${stops})` }}>
-      <div><b>{fmtCount(top.length)}</b><small>{t('admin_categories')}</small></div>
+    <div className="ak-echart-donut-wrap">
+      <Suspense fallback={<div className="ak-echart ak-echart-donut" />}>
+        <EChart option={option} className="ak-echart-donut" ariaLabel={chartLabel} />
+      </Suspense>
+      <div className="ak-donut-center"><b>{fmtCount(top.length)}</b><small>{t('admin_categories')}</small></div>
     </div>
     <div className="ak-donut-legend">{top.map((row, index) => {
       const percent = Number(row.cost || 0) / total * 100

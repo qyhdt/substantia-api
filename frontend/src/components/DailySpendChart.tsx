@@ -1,5 +1,8 @@
+import { lazy, Suspense } from 'react'
 import { type DisplayCurrency } from '../currency'
 import { useI18n } from '../i18n'
+
+const EChart = lazy(() => import('./EChart').then((module) => ({ default: module.EChart })))
 
 export function DailySpendChart({ rows, previousRows = [], currency, rmbPerUsd }: {
   rows: any[]; previousRows?: any[]; currency: DisplayCurrency; rmbPerUsd: number
@@ -14,49 +17,75 @@ export function DailySpendChart({ rows, previousRows = [], currency, rmbPerUsd }
   }))
   if (data.length === 0) return <p className="ak-muted">{t('admin_empty_data')}</p>
 
-  const width = 900
-  const height = 250
-  const left = 62
-  const right = 20
-  const top = 16
-  const bottom = 42
-  const plotWidth = width - left - right
-  const plotHeight = height - top - bottom
-  const max = Math.max(0.01, ...data.map((row) => row.value), ...previous.map((row) => row.value))
-  const xAt = (index: number) => left + (data.length === 1 ? plotWidth / 2 : index * plotWidth / (data.length - 1))
-  const yAt = (value: number) => top + plotHeight - value / max * plotHeight
-  const points = data.map((row, index) => `${xAt(index)},${yAt(row.value)}`).join(' ')
-  const previousPoints = previous.map((row, index) => `${xAt(index)},${yAt(row.value)}`).join(' ')
-  const area = `${xAt(0)},${top + plotHeight} ${points} ${xAt(data.length - 1)},${top + plotHeight}`
-  const labelEvery = Math.max(1, Math.ceil(data.length / 7))
   const symbol = currency === 'rmb' ? '¥' : '$'
+  const currentName = t('admin_current_period')
+  const previousName = t('admin_previous_period')
+  const series: any[] = [{
+    name: currentName,
+    type: 'line',
+    smooth: 0.35,
+    symbol: 'circle',
+    symbolSize: 8,
+    showSymbol: data.length <= 31,
+    lineStyle: { width: 3, color: '#f59e0b', shadowColor: 'rgba(245, 158, 11, .25)', shadowBlur: 8 },
+    itemStyle: { color: '#f59e0b', borderColor: '#ffffff', borderWidth: 2 },
+    areaStyle: {
+      color: {
+        type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+        colorStops: [{ offset: 0, color: 'rgba(245, 158, 11, .32)' }, { offset: 1, color: 'rgba(245, 158, 11, .02)' }],
+      },
+    },
+    data: data.map((row) => row.value),
+  }]
+  if (previous.length > 0) series.push({
+    name: previousName,
+    type: 'line',
+    smooth: 0.35,
+    symbol: 'none',
+    lineStyle: { width: 2, type: 'dashed', color: '#94a3b8' },
+    data: previous.map((row) => row.value),
+  })
+  const option = {
+    animationDuration: 800,
+    animationEasing: 'cubicOut' as const,
+    color: ['#f59e0b', '#94a3b8'],
+    grid: { left: 12, right: 18, top: 46, bottom: 12, containLabel: true },
+    legend: {
+      show: true,
+      top: 4,
+      right: 4,
+      itemWidth: 20,
+      itemHeight: 3,
+      textStyle: { color: '#667085', fontSize: 12 },
+      data: previous.length > 0 ? [currentName, previousName] : [currentName],
+    },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(17, 24, 39, .94)',
+      borderWidth: 0,
+      textStyle: { color: '#f9fafb' },
+      valueFormatter: (value: any) => `${symbol}${Number(value || 0).toFixed(2)}`,
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: data.map((row) => row.day.slice(5)),
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: '#d0d5dd' } },
+      axisLabel: { color: '#667085', hideOverlap: true },
+    },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: '#667085', formatter: (value: number) => `${symbol}${Number(value).toFixed(value >= 100 ? 0 : 2)}` },
+      splitLine: { lineStyle: { color: '#eaecf0', type: 'dashed' } },
+    },
+    series,
+  }
 
-  return (
-    <div className="ak-admin-chart">
-      <div className="ak-chart-legend">
-        <span><i className="current" />{t('admin_current_period')}</span>
-        {previous.length > 0 && <span><i className="previous" />{t('admin_previous_period')}</span>}
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('billing_daily_trend')}>
-        {[0, 0.5, 1].map((ratio) => {
-          const y = top + plotHeight * ratio
-          const value = max * (1 - ratio)
-          return <g key={ratio}>
-            <line x1={left} y1={y} x2={width - right} y2={y} className="ak-chart-grid" />
-            <text x={left - 8} y={y + 4} textAnchor="end" className="ak-chart-label">{symbol}{value.toFixed(value >= 100 ? 0 : 2)}</text>
-          </g>
-        })}
-        <polygon points={area} className="ak-chart-area" />
-        {previousPoints && <polyline points={previousPoints} className="ak-chart-line previous" />}
-        <polyline points={points} className="ak-chart-line" />
-        {data.map((row, index) => (
-          <g key={row.day}>
-            <circle cx={xAt(index)} cy={yAt(row.value)} r="4" className="ak-chart-point"><title>{row.day} · {symbol}{row.value.toFixed(2)}</title></circle>
-            {(index % labelEvery === 0 || index === data.length - 1) &&
-              <text x={xAt(index)} y={height - 14} textAnchor="middle" className="ak-chart-label">{row.day.slice(5)}</text>}
-          </g>
-        ))}
-      </svg>
-    </div>
-  )
+  return <Suspense fallback={<div className="ak-echart ak-echart-line" />}>
+    <EChart option={option} className="ak-echart-line" ariaLabel={t('billing_daily_trend')} />
+  </Suspense>
 }
