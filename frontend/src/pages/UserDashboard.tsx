@@ -712,7 +712,7 @@ function Prices() {
   const now = (v: any) => Number(v || 0) / 1000
   const perMillion = (micro: any) => {
     const value = now(micro)
-    return currency === 'rmb' ? `¥${(value * rmbPerUsd).toFixed(2)}` : `$${value.toFixed(2)}`
+    return currency === 'rmb' ? `¥${Math.round(value * rmbPerUsd)}` : `$${value.toFixed(2)}`
   }
   const PriceCell = ({ micro, officialMicro }: { micro: any; officialMicro?: any }) => {
     const n = now(micro)
@@ -721,8 +721,8 @@ function Prices() {
     const symbol = currency === 'rmb' ? '¥' : '$'
     return (
       <span>
-        {official > n && <><span className="lp-off">{t('pricing_official')} {symbol}{(official * factor).toFixed(2)}</span>{' '}</>}
-        <b className="lp-now">{symbol}{(n * factor).toFixed(2)}</b>
+        {official > n && <><span className="lp-off">{t('pricing_official')} {symbol}{currency === 'rmb' ? Math.round(official * factor) : (official * factor).toFixed(2)}</span>{' '}</>}
+        <b className="lp-now">{symbol}{currency === 'rmb' ? Math.round(n * factor) : (n * factor).toFixed(2)}</b>
       </span>
     )
   }
