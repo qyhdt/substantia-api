@@ -2,6 +2,7 @@ import { useI18n, LangToggle, type TKey } from '../i18n'
 import { BRAND } from '../brand'
 import { publicApi } from '../api'
 import { useAsync } from '../components/common'
+import { useDisplayCurrency, useRmbPerUsd } from '../currency'
 
 // 官网价（每百万 token，美元）与本站倍率。Kimi K3 因资源短缺按原价供应。
 const PRICES: Array<{ model: string; in: number; out: number; multiplier: number; noteKey?: TKey; managed?: boolean }> = [
@@ -11,14 +12,17 @@ const PRICES: Array<{ model: string; in: number; out: number; multiplier: number
   { model: 'glm-5.2', in: 1.4, out: 4.4, multiplier: 0.8, managed: true },
   { model: 'kimi-k3', in: 3, out: 15, multiplier: 1, managed: true },
 ]
-const usd = (n: number) => `$${n.toFixed(2)}`
-
 export function Landing(
   { onAuth, loggedIn, onEnter }:
   { onAuth: (mode: 'login' | 'register') => void; loggedIn?: boolean; onEnter?: () => void }
 ) {
   const { t } = useI18n()
+  const [currency, setCurrency] = useDisplayCurrency()
+  const rmbPerUsd = useRmbPerUsd()
   const livePrices = useAsync(() => publicApi.prices(), [])
+  const money = (usd: number) => currency === 'rmb'
+    ? `¥${(usd * rmbPerUsd).toFixed(2)}`
+    : `$${usd.toFixed(2)}`
   const prices = PRICES.map((item) => {
     if (!item.managed) return item
     const row = (livePrices.data || []).find((candidate: any) => candidate.model === item.model)
@@ -74,6 +78,12 @@ export function Landing(
         <h2>{t('pricing_title')}</h2>
         <p className="ak-muted lp-center">{t('pricing_sub')}</p>
         <div className="lp-pricing">
+          <div className="ak-row" style={{ justifyContent: 'flex-end', marginBottom: 10 }}>
+            {(['rmb', 'usd'] as const).map((value) => (
+              <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
+                onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
+            ))}
+          </div>
           <table className="ak-table">
             <thead>
               <tr>
@@ -93,12 +103,12 @@ export function Landing(
                     {p.noteKey && <div className="ak-muted" style={{ fontSize: 11 }}>{t(p.noteKey)}</div>}
                   </td>
                   <td>
-                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {usd(p.in)}</span>{' '}</>}
-                    <b className="lp-now">{usd(p.in * p.multiplier)}</b>
+                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {money(p.in)}</span>{' '}</>}
+                    <b className="lp-now">{money(p.in * p.multiplier)}</b>
                   </td>
                   <td>
-                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {usd(p.out)}</span>{' '}</>}
-                    <b className="lp-now">{usd(p.out * p.multiplier)}</b>
+                    {p.multiplier < 1 && <><span className="lp-off">{t('pricing_official')} {money(p.out)}</span>{' '}</>}
+                    <b className="lp-now">{money(p.out * p.multiplier)}</b>
                   </td>
                 </tr>
               ))}

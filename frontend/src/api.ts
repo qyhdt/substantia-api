@@ -61,6 +61,7 @@ export const auth = {
 // ---------- 官网公开数据 ----------
 export const publicApi = {
   prices: () => api.get('/public/prices'),
+  fx: () => api.get<{ rate: number; date?: string; source?: string; live?: boolean }>('/public/fx'),
 }
 
 // ---------- 用户端 ----------
@@ -114,7 +115,6 @@ export const admin = {
   moxingAccounting: (days = 30, limit = 100) => api.get(`/admin/moxing/accounting?days=${days}&limit=${limit}`),
   moxingTopup: (payload: any) => api.post('/admin/moxing/topups', payload),
   moxingAdjustment: (payload: any) => api.post('/admin/moxing/adjustments', payload),
-  moxingSnapshot: (payload: any) => api.post('/admin/moxing/snapshots', payload),
   moxingTerms: (model: string, payload: any) => api.put(`/admin/moxing/terms/${encodeURIComponent(model)}`, payload),
   // 上游 slot / 容器（容器团队接口）
   slots: () => api.get('/admin/claude/slots'),

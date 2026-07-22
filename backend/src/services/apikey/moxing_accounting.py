@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, Optional
 
@@ -187,20 +186,6 @@ async def add_funds(*, amount: Decimal, currency: str, entry_type: str,
     return dict(row)
 
 
-async def add_balance_snapshot(*, amount: Decimal, currency: str, admin_id: int,
-                               as_of: datetime | None = None, note: str | None = None) -> Dict[str, Any]:
-    if amount < 0:
-        raise ValueError("reported balance must not be negative")
-    micro, rate = await _money_to_micro(amount, currency)
-    row = await db_util.fetchrow(
-        "INSERT INTO ak_supplier_balance_snapshots "
-        "(supplier, reported_balance_micro_usd, original_amount, original_currency, fx_rate, "
-        " as_of, note, created_by) VALUES ($1,$2,$3,$4,$5,coalesce($6, now()),$7,$8) RETURNING *",
-        SUPPLIER, micro, amount, currency.upper(), rate, as_of, note, admin_id,
-    )
-    return dict(row)
-
-
 def _per_million_to_micro_per_1k(value: Decimal) -> int:
     if value < 0:
         raise ValueError("official price must not be negative")
@@ -318,17 +303,7 @@ async def accounting_summary(days: int = 30, limit: int = 100) -> Dict[str, Any]
         "SELECT * FROM ak_supplier_ledger WHERE supplier=$1 ORDER BY created_at DESC LIMIT $2",
         SUPPLIER, limit,
     )
-    snapshot = await db_util.fetchrow(
-        "SELECT * FROM ak_supplier_balance_snapshots WHERE supplier=$1 ORDER BY as_of DESC, id DESC LIMIT 1",
-        SUPPLIER,
-    )
     account_dict = dict(account) if account else {"supplier": SUPPLIER, "balance_micro_usd": 0}
-    snapshot_dict = dict(snapshot) if snapshot else None
-    if snapshot_dict:
-        snapshot_dict["variance_micro_usd"] = (
-            int(account_dict.get("balance_micro_usd") or 0)
-            - int(snapshot_dict.get("reported_balance_micro_usd") or 0)
-        )
     sales = int(period["sales"] or 0)
     supplier_cost = int(period["supplier_cost"] or 0)
     paid_sales = int(period["paid_sales"] or 0)
@@ -346,7 +321,6 @@ async def accounting_summary(days: int = 30, limit: int = 100) -> Dict[str, Any]
             "cash_contribution_micro_usd": paid_sales - supplier_cost,
         },
         "ledger_totals": totals,
-        "latest_snapshot": snapshot_dict,
         "daily": [dict(row) for row in daily],
         "by_model": [dict(row) for row in by_model],
         "recent_usage": [dict(row) for row in recent_usage],
