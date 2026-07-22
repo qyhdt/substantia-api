@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
-  fmtCnyFromMicroUsd, fmtUsd, portal, RMB_PER_USD_FALLBACK,
+  portal, RMB_PER_USD_FALLBACK,
 } from '../api'
 import { Async, Card, Pager, Pill, useAsync } from '../components/common'
 import { useI18n, type TKey } from '../i18n'
 import { BRAND } from '../brand'
 import { readParam, pushParams, hrefFor } from '../nav'
-import { fmtDisplayCurrency, useDisplayCurrency } from '../currency'
+import { fmtDisplayCurrency, useDisplayCurrency, useRmbPerUsd } from '../currency'
 
 // 两种协议：Anthropic 兼容 + OpenAI 兼容。同一把 sk-key 通用。
 type Fmt = 'anthropic' | 'openai'
@@ -292,6 +292,8 @@ export function UserDashboard({ newKey }: { newKey?: string }) {
 
 function Keys({ justIssued }: { justIssued?: string }) {
   const { t } = useI18n()
+  const [currency] = useDisplayCurrency()
+  const rmbPerUsd = useRmbPerUsd()
   const [keySection, setKeySection] = useState<KeySection>(() =>
     justIssued ? 'manage' : readParam('keytab', KEY_SECTIONS, 'manage') as KeySection)
   const state = useAsync(() => portal.keys(), [])
@@ -440,8 +442,8 @@ function Keys({ justIssued }: { justIssued?: string }) {
                   <td>{k.name}</td>
                   <td className="ak-mono">{k.key_prefix}</td>
                   <td><Pill kind={k.status === 'active' ? 'ok' : 'bad'}>{k.status}</Pill></td>
-                  <td>{fmtUsd(k.spent_micro_usd)}</td>
-                  <td>{k.quota_cap_micro_usd == null ? '—' : fmtUsd(k.quota_cap_micro_usd)}</td>
+                  <td>{fmtDisplayCurrency(k.spent_micro_usd, currency, rmbPerUsd)}</td>
+                  <td>{k.quota_cap_micro_usd == null ? '—' : fmtDisplayCurrency(k.quota_cap_micro_usd, currency, rmbPerUsd)}</td>
                   <td className="ak-muted">{new Date(k.created_at).toLocaleDateString()}</td>
                   <td>
                     <div className="ak-row" style={{ gap: 6, justifyContent: 'flex-end' }}>
@@ -590,7 +592,7 @@ function Bills() {
     <>
       <Card title={t('billing_overview')} actions={
         <div className="ak-row" style={{ gap: 6 }}>
-          {(['usd', 'rmb'] as const).map((value) => (
+          {(['rmb', 'usd'] as const).map((value) => (
             <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
               onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
           ))}
@@ -727,7 +729,7 @@ function Prices() {
   return (
     <Card title={t('card_prices')} actions={
       <div className="ak-row" style={{ gap: 6 }}>
-        {(['usd', 'rmb'] as const).map((value) => (
+        {(['rmb', 'usd'] as const).map((value) => (
           <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
             onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
         ))}
@@ -781,6 +783,7 @@ function Prices() {
 
 function Wallet() {
   const { t } = useI18n()
+  const [currency, setCurrency] = useDisplayCurrency()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const state = useAsync(() => portal.payments(pageSize, (page - 1) * pageSize), [page, pageSize])
@@ -812,6 +815,11 @@ function Wallet() {
   }
   const curBonus = bonusFor(amount)
   const rmb = Math.round(amount * rmbPerUsd * 100) / 100
+  const displayAmount = currency === 'rmb' ? rmb : amount
+  const selectedMoney = (micro: any, digits = 2) => fmtDisplayCurrency(micro, currency, Number(rmbPerUsd), digits)
+  const usdLabel = (usd: number) => currency === 'rmb'
+    ? `¥${(usd * rmbPerUsd).toFixed(2)}`
+    : `$${usd.toFixed(2)}`
 
   async function go() {
     setBusy(true); setMsg(null)
@@ -825,19 +833,25 @@ function Wallet() {
   const off = method === 'polar' ? !polarOn : !xunhupayOn
   return (
     <>
-      <Card title={t('wallet_overview')}>
+      <Card title={t('wallet_overview')} actions={
+        <div className="ak-row" style={{ gap: 6 }}>
+          {(['rmb', 'usd'] as const).map((value) => (
+            <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
+              onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
+          ))}
+        </div>
+      }>
         <Async state={account}>{(me: any) => (
           <div className="ak-wallet-grid">
             <div className="ak-wallet-balance">
               <span>{t('wallet_available')}</span>
-              <b>{fmtUsd(me.balance_micro_usd)}</b>
-              <strong>≈ {fmtCnyFromMicroUsd(me.balance_micro_usd, rmbPerUsd, 2)}</strong>
+              <b>{selectedMoney(me.balance_micro_usd)}</b>
               <small>{t('wallet_balance_note')}</small>
             </div>
-            <div className="ak-wallet-stat"><span>{t('wallet_paid')}</span><b>{fmtUsd(me.paid_micro_usd)}</b></div>
-            <div className="ak-wallet-stat"><span>{t('wallet_trial')}</span><b>{fmtUsd(me.trial_active ? me.trial_micro_usd : 0)}</b></div>
+            <div className="ak-wallet-stat"><span>{t('wallet_paid')}</span><b>{selectedMoney(me.paid_micro_usd)}</b></div>
+            <div className="ak-wallet-stat"><span>{t('wallet_trial')}</span><b>{selectedMoney(me.trial_active ? me.trial_micro_usd : 0)}</b></div>
             <div className="ak-wallet-stat">
-              <span>{t('wallet_model_currency')}</span><b>GLM / Kimi · CNY</b>
+              <span>{t('wallet_model_currency')}</span><b>{currency.toUpperCase()}</b>
               <small>1 USD ≈ {Number(rmbPerUsd).toFixed(4)} CNY</small>
             </div>
           </div>
@@ -859,19 +873,19 @@ function Wallet() {
             const b = bonusFor(v)
             return (
               <button key={v} className={`ak-btn ${amount === v ? 'primary' : ''}`} onClick={() => setAmount(v)}>
-                ${v}{b > 0 && <span style={{ color: '#16a34a', marginLeft: 4, fontSize: 12 }}>+${b}</span>}
+                {usdLabel(v)}{b > 0 && <span style={{ color: '#16a34a', marginLeft: 4, fontSize: 12 }}>+{usdLabel(b)}</span>}
               </button>
             )
           })}
-          <input className="ak-input" type="number" value={amount} min={1}
-            onChange={(e) => setAmount(Number(e.target.value))} style={{ width: 100 }} />
-          <span className="ak-muted">USD</span>
+          <input className="ak-input" type="number" value={Number(displayAmount.toFixed(2))} min={currency === 'rmb' ? rmbPerUsd : 1}
+            onChange={(e) => setAmount(currency === 'rmb' ? Number(e.target.value) / rmbPerUsd : Number(e.target.value))} style={{ width: 100 }} />
+          <span className="ak-muted">{currency.toUpperCase()}</span>
           <button className="ak-btn primary" disabled={busy || !!off} onClick={go}>{busy ? t('recharge_going') : t('recharge_go')}</button>
         </div>
         {curBonus > 0 && (
           <div style={{ marginTop: 8, fontSize: 13 }}>
-            {t('recharge_credited')} <b>${amount + curBonus}</b>
-            <span style={{ color: '#16a34a', marginLeft: 6 }}>(+${curBonus} {t('bonus_word')})</span>
+            {t('recharge_credited')} <b>{usdLabel(amount + curBonus)}</b>
+            <span style={{ color: '#16a34a', marginLeft: 6 }}>(+{usdLabel(curBonus)} {t('bonus_word')})</span>
           </div>
         )}
         {method === 'xunhupay' && (
@@ -884,7 +898,7 @@ function Wallet() {
           </div>
         )}
         <div className="ak-muted" style={{ marginTop: 8, fontSize: 12 }}>
-          {t('bonus_tiers_title')}: {tiers.map((tr) => `$${tr.threshold_usd}→+$${tr.bonus_usd}`).join(' · ')}
+          {t('bonus_tiers_title')}: {tiers.map((tr) => `${usdLabel(tr.threshold_usd)}→+${usdLabel(tr.bonus_usd)}`).join(' · ')}
         </div>
         {off && <div className="ak-muted" style={{ marginTop: 8 }}>{t('recharge_off')}</div>}
         {msg && <div className="ak-err">{msg}</div>}
@@ -901,9 +915,7 @@ function Wallet() {
                 <tr key={r.id}>
                   <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
                   <td>{r.provider === 'xunhupay' ? t('pay_wx_alipay') : t('pay_card')}</td>
-                  <td><b>{r.provider === 'xunhupay'
-                    ? `¥${Number(r.amount_rmb || (Number(r.amount_micro_usd || 0) / 1e6 * rmbPerUsd)).toFixed(2)}`
-                    : fmtUsd(r.amount_micro_usd)}</b></td>
+                  <td><b>{selectedMoney(r.amount_micro_usd)}</b></td>
                   <td><Pill kind={r.status === 'paid' ? 'ok' : 'warn'}>{r.status === 'paid' ? t('topup_paid') : t('topup_pending')}</Pill></td>
                 </tr>
               ))}
@@ -922,6 +934,8 @@ function Wallet() {
 // 人工充值申请：线下转账后填金额 + 上传凭证 → 提交，等 admin 审核。下方列出自己的申请记录。
 function ManualTopup() {
   const { t } = useI18n()
+  const [currency] = useDisplayCurrency()
+  const rmbPerUsd = useRmbPerUsd()
   const list = useAsync(() => portal.topups(), [])
   const [amount, setAmount] = useState(20)
   const [reason, setReason] = useState('')
@@ -964,9 +978,10 @@ function ManualTopup() {
       <Card title={t('card_manual_topup')}>
         <p className="ak-muted">{t('manual_topup_desc')}</p>
         <div className="ak-row" style={{ alignItems: 'center' }}>
-          <span className="ak-muted">{t('label_amount_usd')}</span>
-          <input className="ak-input" type="number" min={1} value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))} style={{ width: 120 }} />
+          <span className="ak-muted">{t('moxing_amount')} ({currency.toUpperCase()})</span>
+          <input className="ak-input" type="number" min={1}
+            value={Number((amount * (currency === 'rmb' ? rmbPerUsd : 1)).toFixed(2))}
+            onChange={(e) => setAmount(Number(e.target.value) / (currency === 'rmb' ? rmbPerUsd : 1))} style={{ width: 120 }} />
         </div>
         <textarea className="ak-input" placeholder={t('manual_reason_ph')} value={reason}
           onChange={(e) => setReason(e.target.value)} rows={2}
@@ -999,7 +1014,7 @@ function ManualTopup() {
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
-                  <td>{fmtUsd(r.requested_micro_usd)}</td>
+                  <td>{fmtDisplayCurrency(r.requested_micro_usd, currency, rmbPerUsd)}</td>
                   <td className="ak-muted">{r.reason || '—'}</td>
                   <td>{r.proof_url
                     ? <a className="ak-link" href={r.proof_url} target="_blank" rel="noreferrer">{t('view_proof')}</a>

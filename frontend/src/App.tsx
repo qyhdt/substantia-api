@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import './ui.css'
-import { auth, fmtUsd, portal } from './api'
+import { auth, portal } from './api'
 import { BRAND } from './brand'
 import { useI18n, LangToggle } from './i18n'
 import { Landing } from './pages/Landing'
@@ -8,15 +8,19 @@ import { Login } from './pages/Login'
 import { UserDashboard } from './pages/UserDashboard'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { readParam, pushParams, hrefFor } from './nav'
+import { fmtDisplayCurrency, useDisplayCurrency, useRmbPerUsd } from './currency'
 
 type User = {
   id: number; email: string; role: string; balance_micro_usd?: number
   trial_active?: boolean; trial_permanent?: boolean; trial_expires_at?: string; trial_usd?: string
+  trial_micro_usd?: number
   must_change_password?: boolean
 }
 
 export default function App() {
   const { t } = useI18n()
+  const [currency, setCurrency] = useDisplayCurrency()
+  const rmbPerUsd = useRmbPerUsd()
   const [user, setUser] = useState<User | null>(null)
   const [booting, setBooting] = useState(true)
   const [firstKey, setFirstKey] = useState<string | undefined>()
@@ -116,7 +120,13 @@ export default function App() {
                 onClick={(e) => { e.preventDefault(); goView('admin') }}>Admin</a>
             </div>
           )}
-          <span className="ak-balance">{fmtUsd(user.balance_micro_usd)}</span>
+          <span className="ak-balance">{fmtDisplayCurrency(user.balance_micro_usd, currency, rmbPerUsd)}</span>
+          <div className="ak-row" style={{ gap: 4 }}>
+            {(['rmb', 'usd'] as const).map((value) => (
+              <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
+                onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
+            ))}
+          </div>
           <span>{user.email}</span>
           <LangToggle />
           <button className="ak-btn" onClick={logout}>{t('logout')}</button>
@@ -125,7 +135,7 @@ export default function App() {
 
       {user.trial_active && !user.trial_permanent && (
         <div className="ak-keybanner" style={{ background: '#eff6ff', borderColor: 'var(--accent)' }}>
-          🎁 {t('trial_banner_1')} <b>{user.trial_usd}</b>{t('trial_banner_2')}{' '}
+          🎁 {t('trial_banner_1')} <b>{fmtDisplayCurrency(user.trial_micro_usd, currency, rmbPerUsd)}</b>{t('trial_banner_2')}{' '}
           <b>{user.trial_expires_at ? new Date(user.trial_expires_at).toLocaleDateString() : '—'}</b>
           {t('trial_banner_3')}<b>{t('trial_permanent')}</b>。
         </div>

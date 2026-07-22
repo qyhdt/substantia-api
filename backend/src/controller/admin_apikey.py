@@ -6,7 +6,6 @@
 
 slot 池的真源是 services.claude（slots.json + 进程内 router）；这里只是它的 HTTP 管理面。
 """
-from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
@@ -243,15 +242,8 @@ async def usage_summary(days: int = 7):
 # ============================== 墨行资金 / 成本 / 销售对账 ==============================
 class MoxingMoneyIn(BaseModel):
     amount: Decimal
-    currency: str = Field(default="USD", pattern="^(?i:USD|RMB)$")
+    currency: str = Field(default="RMB", pattern="^(?i:USD|RMB)$")
     reference: Optional[str] = Field(default=None, max_length=128)
-    note: Optional[str] = Field(default=None, max_length=500)
-
-
-class MoxingSnapshotIn(BaseModel):
-    amount: Decimal = Field(ge=0)
-    currency: str = Field(default="USD", pattern="^(?i:USD|RMB)$")
-    as_of: Optional[datetime] = None
     note: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -295,17 +287,6 @@ async def moxing_adjustment(payload: MoxingMoneyIn, admin: dict = Depends(requir
         return await moxing_acct.add_funds(
             amount=payload.amount, currency=payload.currency, entry_type="adjustment",
             admin_id=int(admin["id"]), reference=payload.reference, note=payload.note,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.post("/moxing/snapshots", summary="登记墨行后台余额快照用于差异核对")
-async def moxing_snapshot(payload: MoxingSnapshotIn, admin: dict = Depends(require_admin)):
-    try:
-        return await moxing_acct.add_balance_snapshot(
-            amount=payload.amount, currency=payload.currency, as_of=payload.as_of,
-            admin_id=int(admin["id"]), note=payload.note,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

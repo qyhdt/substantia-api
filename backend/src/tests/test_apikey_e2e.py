@@ -128,6 +128,9 @@ def test_gateway_requires_key(client):
     glm = next(row for row in prices.json() if row["model"] == "glm-5.2")
     assert glm["supplier_managed"] is True
     assert "supplier" not in glm and "supplier_multiplier" not in glm
+    exchange = client.get("/api/public/fx")
+    assert exchange.status_code == 200
+    assert float(exchange.json()["rate"]) > 0
 
     # 无 sk-key → 401
     assert client.post("/api/v1/messages", json={"messages": [{"role": "user", "content": "hi"}]}).status_code == 401
@@ -166,10 +169,6 @@ def test_moxing_supplier_reconciliation_conserves_both_ledgers(client):
             upstream_model="glm-5.2", prompt_tokens=1000, completion_tokens=100,
             latency_ms=10, request_id="req-ledger-test",
         )
-        await acct.add_balance_snapshot(
-            amount=Decimal("9.998344"), currency="USD", admin_id=user_id,
-            note="matching supplier statement",
-        )
         public_prices = await pricing_svc.list_prices()
         public_usage = await usage_svc.usage_for_user(user_id)
         return (
@@ -188,7 +187,6 @@ def test_moxing_supplier_reconciliation_conserves_both_ledgers(client):
     assert user["balance_micro_usd"] == 10_000_000 - 1472
     assert summary["account"]["balance_micro_usd"] == 10_000_000 - 1656
     assert summary["ledger_totals"]["internal_variance_micro_usd"] == 0
-    assert summary["latest_snapshot"]["variance_micro_usd"] == 0
     assert summary["period"]["gross_profit_micro_usd"] == 1472 - 1656
     glm_price = next(row for row in public_prices if row["model"] == "glm-5.2")
     assert glm_price["supplier_managed"] is True

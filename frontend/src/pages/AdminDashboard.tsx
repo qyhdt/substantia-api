@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { admin, fmtUsd, RMB_PER_USD_FALLBACK } from '../api'
+import { admin, RMB_PER_USD_FALLBACK } from '../api'
 import { Async, Card, Pill, useAsync } from '../components/common'
 import { readParam, pushParams, hrefFor } from '../nav'
 import { useI18n, type TKey } from '../i18n'
-import { fmtDisplayCurrency, useDisplayCurrency, type DisplayCurrency } from '../currency'
+import { fmtDisplayCurrency, useDisplayCurrency, useRmbPerUsd, type DisplayCurrency } from '../currency'
 
 const fmtTime = (t?: string | null) => (t ? new Date(t).toLocaleString() : '—')
 const fmtCount = (value: any) => new Intl.NumberFormat().format(Number(value || 0))
@@ -60,6 +60,8 @@ export function AdminDashboard() {
 
 function Topups() {
   const { t } = useI18n()
+  const [currency] = useDisplayCurrency()
+  const rmbPerUsd = useRmbPerUsd()
   const state = useAsync(() => admin.topups(), [])
   async function review(id: number, approve: boolean) {
     await admin.reviewTopup(id, approve)
@@ -75,7 +77,7 @@ function Topups() {
               <tr key={r.id}>
                 <td className="ak-muted">{new Date(r.created_at).toLocaleString()}</td>
                 <td>{r.email}</td>
-                <td>{fmtUsd(r.requested_micro_usd)}</td>
+                <td>{fmtDisplayCurrency(r.requested_micro_usd, currency, rmbPerUsd)}</td>
                 <td className="ak-muted">{r.reason || '—'}</td>
                 <td>{r.proof_url
                   ? <a className="ak-link" href={r.proof_url} target="_blank" rel="noreferrer">
@@ -101,6 +103,8 @@ function Topups() {
 
 function Payments() {
   const { t } = useI18n()
+  const [currency] = useDisplayCurrency()
+  const rmbPerUsd = useRmbPerUsd()
   const state = useAsync(() => admin.payments(), [])
   const provLabel = (p: string) => p === 'xunhupay' ? '虎皮椒' : p === 'polar' ? 'Polar' : (p || '—')
   return (
@@ -121,7 +125,7 @@ function Payments() {
                   <td className="ak-muted">{fmtTime(r.created_at)}</td>
                   <td>{r.user_email}</td>
                   <td>{provLabel(r.provider)}</td>
-                  <td>{fmtUsd(r.amount_micro_usd)}</td>
+                  <td>{fmtDisplayCurrency(r.amount_micro_usd, currency, rmbPerUsd)}</td>
                   <td className="ak-muted">{r.amount_rmb != null ? `¥${Number(r.amount_rmb).toFixed(2)}` : '—'}</td>
                   <td className="ak-mono ak-muted" style={{ fontSize: 12 }}>{r.out_trade_no}</td>
                   <td><Pill kind={r.status === 'paid' ? 'ok' : 'warn'}>{r.status}</Pill></td>
@@ -139,6 +143,8 @@ function Payments() {
 
 function Users() {
   const { t } = useI18n()
+  const [currency] = useDisplayCurrency()
+  const rmbPerUsd = useRmbPerUsd()
   const state = useAsync(() => admin.users(), [])
   const [detailId, setDetailId] = useState<number | null>(null)
   const [nu, setNu] = useState({ email: '', role: 'user', balance: '0' })
@@ -148,7 +154,10 @@ function Users() {
     setCreating(true)
     try {
       // 默认密码 123456，后端置 must_change_password，用户首次登录须改密
-      const r = await admin.createUser({ email: nu.email.trim(), password: '123456', role: nu.role, balance_usd: Number(nu.balance) || 0 })
+      const r = await admin.createUser({
+        email: nu.email.trim(), password: '123456', role: nu.role,
+        balance_usd: Number(nu.balance) || 0,
+      })
       alert(`${t('admin_adduser_ok')}\n\n${r.api_key_plain}`)
       setNu({ email: '', role: 'user', balance: '0' })
       state.reload()
@@ -157,9 +166,9 @@ function Users() {
     } finally { setCreating(false) }
   }
   async function grant(id: number) {
-    const v = prompt(t('admin_grant_prompt'), '10')
+    const v = prompt(t('admin_grant_prompt').replace('USD', currency.toUpperCase()), '10')
     if (v == null) return
-    await admin.grant(id, Number(v))
+    await admin.grant(id, currency === 'rmb' ? Number(v) / rmbPerUsd : Number(v))
     state.reload()
   }
   async function toggleStatus(u: any) {
@@ -194,8 +203,9 @@ function Users() {
           <option value="user">user</option>
           <option value="admin">admin</option>
         </select>
-        <input className="ak-input" type="number" style={{ width: 140 }} placeholder={t('admin_adduser_balance')} value={nu.balance}
-          onChange={(e) => setNu({ ...nu, balance: e.target.value })} />
+        <input className="ak-input" type="number" style={{ width: 140 }} placeholder={`${t('admin_col_balance')} (${currency.toUpperCase()})`}
+          value={Number((Number(nu.balance || 0) * (currency === 'rmb' ? rmbPerUsd : 1)).toFixed(4))}
+          onChange={(e) => setNu({ ...nu, balance: String(Number(e.target.value) / (currency === 'rmb' ? rmbPerUsd : 1)) })} />
         <button className="ak-btn primary" disabled={creating || !nu.email} onClick={createUser}>
           {creating ? t('admin_adduser_creating') : t('admin_adduser_btn')}
         </button>
@@ -213,11 +223,11 @@ function Users() {
                 </td>
                 <td><Pill kind={u.role === 'admin' ? 'warn' : undefined}>{u.role}</Pill></td>
                 <td><Pill kind={u.status === 'active' ? 'ok' : 'bad'}>{u.status}</Pill></td>
-                <td className="ak-balance">{fmtUsd(u.balance_micro_usd)}</td>
+                <td className="ak-balance">{fmtDisplayCurrency(u.balance_micro_usd, currency, rmbPerUsd)}</td>
                 <td><Pill kind={fmtMult(u.price_multiplier) !== '1' ? 'warn' : undefined}>×{fmtMult(u.price_multiplier)}</Pill></td>
                 <td><Pill kind={u.full_model_access ? 'ok' : 'warn'}>{u.full_model_access ? t('admin_full_models') : t('admin_glm_only')}</Pill></td>
                 <td>{u.trial_active
-                  ? <span className="ak-muted">{fmtUsd(u.trial_micro_usd)} {t('admin_until')} {u.trial_expires_at ? new Date(u.trial_expires_at).toLocaleDateString() : '—'}</span>
+                  ? <span className="ak-muted">{fmtDisplayCurrency(u.trial_micro_usd, currency, rmbPerUsd)} {t('admin_until')} {u.trial_expires_at ? new Date(u.trial_expires_at).toLocaleDateString() : '—'}</span>
                   : <span className="ak-muted">—</span>}</td>
                 <td>
                   <div className="ak-row">
@@ -248,7 +258,7 @@ function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => v
         <div className="ak-row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>{t('admin_user_detail_title')}</h3>
           <div className="ak-row" style={{ gap: 6 }}>
-            {(['usd', 'rmb'] as const).map((value) => (
+            {(['rmb', 'usd'] as const).map((value) => (
               <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
                 onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
             ))}
@@ -339,15 +349,18 @@ function UserDetailModal({ userId, onClose }: { userId: number; onClose: () => v
 
 function Prices() {
   const { t } = useI18n()
+  const [currency] = useDisplayCurrency()
+  const rmbPerUsd = useRmbPerUsd()
+  const factor = currency === 'rmb' ? rmbPerUsd : 1
   const state = useAsync(() => admin.prices(), [])
   const [f, setF] = useState({ model: '', display_name: '', input: 0, output: 0 })
-  // 行内编辑：以「美元 / 1k」为单位（和表格显示一致），保存时 ×1e6 转微美元。
+  // 编辑状态保留 USD/1k，输入框按当前显示币种换算；保存时转回 micro-USD/1k。
   const [edit, setEdit] = useState<Record<string, { input: number; output: number }>>({})
   async function save() {
     if (!f.model) return
     await admin.upsertPrice({
       model: f.model, display_name: f.display_name,
-      input_micro_usd_per_1k: Math.round(f.input), output_micro_usd_per_1k: Math.round(f.output), enabled: true,
+      input_micro_usd_per_1k: Math.round(f.input * 1e6), output_micro_usd_per_1k: Math.round(f.output * 1e6), enabled: true,
     })
     setF({ model: '', display_name: '', input: 0, output: 0 })
     state.reload()
@@ -384,8 +397,8 @@ function Prices() {
         <div className="ak-row">
           <input className="ak-input" placeholder="model id" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} />
           <input className="ak-input" placeholder={t('admin_ph_display_name')} value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} />
-          <input className="ak-input" type="number" placeholder={t('admin_ph_input_price')} value={f.input} onChange={(e) => setF({ ...f, input: Number(e.target.value) })} style={{ width: 110 }} />
-          <input className="ak-input" type="number" placeholder={t('admin_ph_output_price')} value={f.output} onChange={(e) => setF({ ...f, output: Number(e.target.value) })} style={{ width: 110 }} />
+          <input className="ak-input" type="number" placeholder={`${t('admin_ph_input_price')} ${currency.toUpperCase()}`} value={Number((f.input * factor).toFixed(6))} onChange={(e) => setF({ ...f, input: Number(e.target.value) / factor })} style={{ width: 130 }} />
+          <input className="ak-input" type="number" placeholder={`${t('admin_ph_output_price')} ${currency.toUpperCase()}`} value={Number((f.output * factor).toFixed(6))} onChange={(e) => setF({ ...f, output: Number(e.target.value) / factor })} style={{ width: 130 }} />
           <button className="ak-btn primary" onClick={save}>{t('admin_save')}</button>
         </div>
       </Card>
@@ -401,13 +414,13 @@ function Prices() {
                     <td className="ak-mono">{p.model}</td>
                     <td>{p.display_name || '—'}</td>
                     <td>{e
-                      ? <input className="ak-input" type="number" step="0.0001" value={e.input} style={{ width: 100 }}
-                          onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, input: Number(ev.target.value) } })} />
-                      : fmtUsd(p.input_micro_usd_per_1k)}</td>
+                      ? <input className="ak-input" type="number" step="0.0001" value={Number((e.input * factor).toFixed(6))} style={{ width: 110 }}
+                          onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, input: Number(ev.target.value) / factor } })} />
+                      : fmtDisplayCurrency(p.input_micro_usd_per_1k, currency, rmbPerUsd, 6)}</td>
                     <td>{e
-                      ? <input className="ak-input" type="number" step="0.0001" value={e.output} style={{ width: 100 }}
-                          onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, output: Number(ev.target.value) } })} />
-                      : fmtUsd(p.output_micro_usd_per_1k)}</td>
+                      ? <input className="ak-input" type="number" step="0.0001" value={Number((e.output * factor).toFixed(6))} style={{ width: 110 }}
+                          onChange={(ev) => setEdit({ ...edit, [p.model]: { ...e, output: Number(ev.target.value) / factor } })} />
+                      : fmtDisplayCurrency(p.output_micro_usd_per_1k, currency, rmbPerUsd, 6)}</td>
                     <td>{p.supplier_managed
                       ? <Pill kind="warn">{t('admin_supplier_managed')}</Pill>
                       : <a className="ak-link" style={{ cursor: 'pointer' }} onClick={() => toggleEnabled(p)}>
@@ -774,34 +787,26 @@ function MoxingAccounting() {
   const [currency, setCurrency] = useDisplayCurrency()
   const [days, setDays] = useState(30)
   const state = useAsync(() => admin.moxingAccounting(days), [days])
-  const [entry, setEntry] = useState({ type: 'topup', amount: '', currency: 'USD', reference: '', note: '' })
-  const [snapshot, setSnapshot] = useState({ amount: '', currency: 'USD', note: '' })
+  const [entry, setEntry] = useState({ type: 'topup', amount: '', reference: '', note: '' })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
   async function submitEntry() {
-    const amount = Number(entry.amount)
+    const amountUsd = Number(entry.amount)
+    const amount = currency === 'rmb' ? amountUsd * Number(state.data?.rmb_per_usd || RMB_PER_USD_FALLBACK) : amountUsd
     if (!isFinite(amount) || amount === 0 || (entry.type === 'topup' && amount < 0)) return
     if (!confirm(t('moxing_entry_confirm'))) return
     setBusy(true); setMsg(null)
     try {
-      const payload = { amount, currency: entry.currency, reference: entry.reference || null, note: entry.note || null }
+      const payload = {
+        amount,
+        currency: currency === 'rmb' ? 'RMB' : 'USD',
+        reference: entry.reference || null,
+        note: entry.note || null,
+      }
       if (entry.type === 'topup') await admin.moxingTopup(payload)
       else await admin.moxingAdjustment(payload)
       setEntry({ ...entry, amount: '', reference: '', note: '' })
-      setMsg(t('moxing_saved'))
-      state.reload()
-    } catch (e: any) { setMsg(`${t('failed')}: ${e?.message || e}`) }
-    finally { setBusy(false) }
-  }
-
-  async function submitSnapshot() {
-    const amount = Number(snapshot.amount)
-    if (!isFinite(amount) || amount < 0) return
-    setBusy(true); setMsg(null)
-    try {
-      await admin.moxingSnapshot({ amount, currency: snapshot.currency, note: snapshot.note || null })
-      setSnapshot({ ...snapshot, amount: '', note: '' })
       setMsg(t('moxing_saved'))
       state.reload()
     } catch (e: any) { setMsg(`${t('failed')}: ${e?.message || e}`) }
@@ -815,11 +820,10 @@ function MoxingAccounting() {
       const account = d.account || {}
       const period = d.period || {}
       const totals = d.ledger_totals || {}
-      const snap = d.latest_snapshot
       return <>
         <Card title={t('moxing_reconcile_title')} actions={
           <div className="ak-row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            {(['usd', 'rmb'] as const).map((value) => (
+            {(['rmb', 'usd'] as const).map((value) => (
               <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
                 onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
             ))}
@@ -836,7 +840,6 @@ function MoxingAccounting() {
             <div className="ak-billing-stat"><span>{t('moxing_supplier_cost')}</span><b>{money(period.supplier_cost)}</b><small>{fmtCount(period.calls)} {t('billing_calls_unit')}</small></div>
             <div className="ak-billing-stat"><span>{t('moxing_sales')}</span><b>{money(period.sales)}</b><small>{t('moxing_paid_sales')} {money(period.paid_sales)} · {t('moxing_trial_sales')} {money(period.trial_sales)}</small></div>
             <div className="ak-billing-stat"><span>{t('moxing_gross_profit')}</span><b>{money(period.gross_profit_micro_usd)}</b><small>{t('moxing_cash_contribution')} {money(period.cash_contribution_micro_usd)}</small></div>
-            <div className="ak-billing-stat"><span>{t('moxing_reported_balance')}</span><b>{snap ? money(snap.reported_balance_micro_usd) : '—'}</b><small>{t('moxing_variance')} {snap ? money(snap.variance_micro_usd) : '—'}</small></div>
           </div>
           {(Number(totals.internal_variance_micro_usd || 0) !== 0 || Number(period.accounting_issue_calls || 0) > 0) &&
             <div className="ak-err" style={{ marginTop: 12 }}>
@@ -846,18 +849,17 @@ function MoxingAccounting() {
             </div>}
         </Card>
 
-        <div className="ak-billing-panels">
-          <Card title={t('moxing_funds_entry')}>
+        <Card title={t('moxing_funds_entry')}>
             <div className="ak-row" style={{ flexWrap: 'wrap' }}>
               <select className="ak-input" value={entry.type} onChange={(e) => setEntry({ ...entry, type: e.target.value })}>
                 <option value="topup">{t('moxing_topup')}</option>
                 <option value="adjustment">{t('moxing_adjustment')}</option>
               </select>
-              <input className="ak-input" type="number" value={entry.amount} placeholder={t('moxing_amount')}
-                onChange={(e) => setEntry({ ...entry, amount: e.target.value })} />
-              <select className="ak-input" value={entry.currency} onChange={(e) => setEntry({ ...entry, currency: e.target.value })}>
-                <option>USD</option><option>RMB</option>
-              </select>
+              <input className="ak-input" type="number"
+                value={entry.amount === '' ? '' : Number((Number(entry.amount) * (currency === 'rmb' ? rate : 1)).toFixed(4))}
+                placeholder={t('moxing_amount')}
+                onChange={(e) => setEntry({ ...entry, amount: e.target.value === '' ? '' : String(Number(e.target.value) / (currency === 'rmb' ? rate : 1)) })} />
+              <b>{currency === 'rmb' ? 'RMB' : 'USD'}</b>
               <input className="ak-input" value={entry.reference} placeholder={t('moxing_reference')}
                 onChange={(e) => setEntry({ ...entry, reference: e.target.value })} />
               <input className="ak-input" value={entry.note} placeholder={t('moxing_note')}
@@ -865,29 +867,15 @@ function MoxingAccounting() {
               <button className="ak-btn primary" disabled={busy || !entry.amount} onClick={submitEntry}>{t('admin_save')}</button>
             </div>
             <p className="ak-muted" style={{ fontSize: 12 }}>{t('moxing_immutable_hint')}</p>
-          </Card>
-          <Card title={t('moxing_snapshot_title')}>
-            <div className="ak-row" style={{ flexWrap: 'wrap' }}>
-              <input className="ak-input" type="number" min="0" value={snapshot.amount} placeholder={t('moxing_reported_balance')}
-                onChange={(e) => setSnapshot({ ...snapshot, amount: e.target.value })} />
-              <select className="ak-input" value={snapshot.currency} onChange={(e) => setSnapshot({ ...snapshot, currency: e.target.value })}>
-                <option>USD</option><option>RMB</option>
-              </select>
-              <input className="ak-input" value={snapshot.note} placeholder={t('moxing_note')}
-                onChange={(e) => setSnapshot({ ...snapshot, note: e.target.value })} />
-              <button className="ak-btn primary" disabled={busy || snapshot.amount === ''} onClick={submitSnapshot}>{t('moxing_snapshot_save')}</button>
-            </div>
-            <p className="ak-muted" style={{ fontSize: 12 }}>{t('moxing_snapshot_hint')}</p>
-          </Card>
-        </div>
+        </Card>
         {msg && <div className={msg.startsWith(t('failed')) ? 'ak-err' : 'ak-ok'} style={{ marginBottom: 12 }}>{msg}</div>}
 
         <Card title={t('moxing_terms_title')}>
           <p className="ak-muted" style={{ marginTop: 0 }}>{t('moxing_terms_desc')}</p>
           <div className="ak-table-scroll">
             <table className="ak-table">
-              <thead><tr><th>{t('admin_col_model')}</th><th>{t('moxing_official_in')}</th><th>{t('moxing_official_out')}</th><th>{t('moxing_cache_read')}</th><th>{t('moxing_cache_write')}</th><th>{t('moxing_supplier_discount')}</th><th>{t('moxing_sale_discount')}</th><th></th></tr></thead>
-              <tbody>{(d.terms || []).map((term: any) => <MoxingTermRow key={term.model} term={term} onSaved={state.reload} />)}</tbody>
+              <thead><tr><th>{t('admin_col_model')}</th><th>{t('moxing_official_in')} ({currency === 'rmb' ? '¥/百万' : '$/百万'})</th><th>{t('moxing_official_out')} ({currency === 'rmb' ? '¥/百万' : '$/百万'})</th><th>{t('moxing_cache_read')} ({currency === 'rmb' ? '¥/百万' : '$/百万'})</th><th>{t('moxing_cache_write')} ({currency === 'rmb' ? '¥/百万' : '$/百万'})</th><th>{t('moxing_supplier_discount')}</th><th>{t('moxing_sale_discount')}</th><th></th></tr></thead>
+              <tbody>{(d.terms || []).map((term: any) => <MoxingTermRow key={term.model} term={term} currency={currency} rmbPerUsd={rate} onSaved={state.reload} />)}</tbody>
             </table>
           </div>
         </Card>
@@ -939,7 +927,9 @@ function MoxingAccounting() {
   )
 }
 
-function MoxingTermRow({ term, onSaved }: { term: any; onSaved: () => void }) {
+function MoxingTermRow({ term, currency, rmbPerUsd, onSaved }: {
+  term: any; currency: DisplayCurrency; rmbPerUsd: number; onSaved: () => void
+}) {
   const { t } = useI18n()
   const [form, setForm] = useState({
     input: Number(term.official_input_micro_usd_per_1k || 0) / 1000,
@@ -965,11 +955,15 @@ function MoxingTermRow({ term, onSaved }: { term: any; onSaved: () => void }) {
       onSaved()
     } finally { setSaving(false) }
   }
-  const input = (key: keyof typeof form, width = 90) => <input className="ak-input" type="number" step="0.01" min="0"
-    value={form[key]} style={{ width }} onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })} />
+  const input = (key: keyof typeof form, width = 90, isMoney = false) => {
+    const factor = isMoney && currency === 'rmb' ? rmbPerUsd : 1
+    return <input className="ak-input" type="number" step="0.01" min="0"
+      value={Number((form[key] * factor).toFixed(6))} style={{ width }}
+      onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) / factor })} />
+  }
   return <tr>
     <td><b>{term.display_name || term.model}</b><div className="ak-mono ak-muted">{term.model}</div></td>
-    <td>{input('input')}</td><td>{input('output')}</td><td>{input('cacheRead')}</td><td>{input('cacheWrite')}</td>
+    <td>{input('input', 110, true)}</td><td>{input('output', 110, true)}</td><td>{input('cacheRead', 110, true)}</td><td>{input('cacheWrite', 110, true)}</td>
     <td>{input('supplierTenths', 75)} {t('moxing_tenths')}</td><td>{input('saleTenths', 75)} {t('moxing_tenths')}</td>
     <td><button className="ak-btn primary" disabled={saving} onClick={save}>{saving ? t('submitting') : t('admin_save')}</button></td>
   </tr>
@@ -985,7 +979,7 @@ function UsageBoard() {
       <>
         <Card title={t('admin_daily_trend')} actions={
           <div className="ak-row" style={{ gap: 6 }}>
-            {(['usd', 'rmb'] as const).map((value) => (
+            {(['rmb', 'usd'] as const).map((value) => (
               <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
                 onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
             ))}
