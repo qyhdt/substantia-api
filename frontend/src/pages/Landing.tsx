@@ -5,8 +5,6 @@ import { BRAND } from '../brand'
 const PRICES: Array<{ model: string; in: number; out: number; multiplier: number; noteKey?: TKey }> = [
   { model: 'claude-opus-4-8', in: 5, out: 25, multiplier: 0.8 },
   { model: 'claude-sonnet-5', in: 3, out: 15, multiplier: 0.8 },
-  { model: 'claude-sonnet-4-6', in: 3, out: 15, multiplier: 0.8 },
-  { model: 'claude-haiku-4-5', in: 1, out: 5, multiplier: 0.8 },
   { model: 'claude-fable-5', in: 10, out: 50, multiplier: 0.8 },
   { model: 'glm-5.2', in: 1.4, out: 4.4, multiplier: 0.8, noteKey: 'pricing_glm_note' },
   { model: 'kimi-k3', in: 3, out: 15, multiplier: 1, noteKey: 'pricing_kimi_note' },
