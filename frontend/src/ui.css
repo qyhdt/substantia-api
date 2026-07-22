@@ -64,9 +64,14 @@ a.ak-tab:hover, a.ak-side-item:hover { text-decoration: none; }
 .ak-admin-chart svg { display: block; width: 100%; min-width: 620px; height: auto; }
 .ak-chart-grid { stroke: var(--border); stroke-width: 1; }
 .ak-chart-label { fill: var(--muted); font-size: 11px; }
-.ak-chart-area { fill: rgba(37, 99, 235, .12); }
-.ak-chart-line { fill: none; stroke: #2563eb; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
-.ak-chart-point { fill: #14b8a6; stroke: #fff; stroke-width: 2; }
+.ak-chart-area { fill: rgba(245, 158, 11, .14); }
+.ak-chart-line { fill: none; stroke: #f59e0b; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.ak-chart-line.previous { stroke: #94a3b8; stroke-width: 2; stroke-dasharray: 7 6; }
+.ak-chart-point { fill: #f59e0b; stroke: #fff; stroke-width: 2; }
+.ak-chart-legend { display: flex; justify-content: flex-end; gap: 16px; color: var(--muted); font-size: 12px; }
+.ak-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ak-chart-legend i { width: 18px; height: 3px; border-radius: 3px; background: #f59e0b; }
+.ak-chart-legend i.previous { height: 2px; background: repeating-linear-gradient(90deg, #94a3b8 0 6px, transparent 6px 10px); }
 
 /* 左侧菜单 + 右侧内容（admin 与用户控制台共用） */
 .ak-sidelayout { display: flex; gap: 20px; align-items: flex-start; }
@@ -173,6 +178,18 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-width: 0;
 }
 .ak-billing-panels h4 { margin: 0 0 12px; font-size: 14px; }
+.admin-distribution-panels { margin-bottom: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ak-donut-layout { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: center; gap: 24px; min-height: 220px; }
+.ak-donut { width: 172px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; }
+.ak-donut::before { content: ''; grid-area: 1 / 1; width: 58%; aspect-ratio: 1; border-radius: 50%; background: var(--panel); }
+.ak-donut > div { grid-area: 1 / 1; position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
+.ak-donut b { font-size: 22px; }
+.ak-donut small { color: var(--muted); }
+.ak-donut-legend { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.ak-donut-legend > div { display: grid; grid-template-columns: 9px minmax(80px, 1fr) auto auto; align-items: center; gap: 8px; }
+.ak-donut-legend i { width: 9px; height: 9px; border-radius: 50%; }
+.ak-donut-legend span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ak-donut-legend small { color: var(--muted); white-space: nowrap; }
 .ak-model-cost-list { display: flex; flex-direction: column; gap: 13px; }
 .ak-model-cost small { color: var(--muted); margin-left: 5px; }
 .ak-model-cost strong { font-size: 13px; }
@@ -199,9 +216,12 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 @media (max-width: 980px) {
   .ak-billing-stats, .ak-wallet-grid { grid-template-columns: repeat(2, 1fr); }
   .ak-billing-panels { grid-template-columns: 1fr; }
+  .admin-distribution-panels { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
   .ak-billing-stats, .ak-wallet-grid { grid-template-columns: 1fr; }
+  .ak-donut-layout { grid-template-columns: 1fr; justify-items: center; }
+  .ak-donut-legend { width: 100%; }
 }
 
 /* ================= 落地页 ================= */

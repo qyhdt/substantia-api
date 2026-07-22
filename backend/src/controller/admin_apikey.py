@@ -228,8 +228,16 @@ async def upsert_price(payload: PriceIn):
 
 # ============================== 用量看板 ==============================
 @router.get("/usage/summary", summary="用量看板聚合")
-async def usage_summary(days: int = 7):
-    result = await usage_svc.admin_summary(days=days)
+async def usage_summary(days: int = 7, start_date: Optional[date] = None,
+                        end_date: Optional[date] = None):
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=422, detail="start_date must not be after end_date")
+    try:
+        result = await usage_svc.admin_summary(
+            days=days, start_date=start_date, end_date=end_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     exchange = await fx.current_usd_cny()
     result.update({
         "rmb_per_usd": exchange["rate"],

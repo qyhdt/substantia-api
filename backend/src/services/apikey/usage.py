@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 
@@ -301,7 +303,7 @@ async def admin_usage_details(*, email: str | None = None, start_date=None, end_
     if email and email.strip():
         conditions.append(f"u.email ILIKE {bind('%' + email.strip() + '%')}")
     if start_date is not None:
-        conditions.append(f"l.created_at >= ({bind(start_date)}::date AT TIME ZONE 'Asia/Shanghai')")
+        conditions.append(f"l.created_at >= ({bind(start_date)}::date::timestamp AT TIME ZONE 'Asia/Shanghai')")
     if end_date is not None:
         conditions.append(
             f"l.created_at < (({bind(end_date)}::date + interval '1 day') AT TIME ZONE 'Asia/Shanghai')"
@@ -323,41 +325,95 @@ async def admin_usage_details(*, email: str | None = None, start_date=None, end_
     return {"items": [dict(row) for row in rows], "total": int(total or 0)}
 
 
-async def admin_summary(limit: int = 500, days: int = 7) -> Dict[str, Any]:
-    """管理看板：按选定天数返回趋势、日账单及各维度汇总。"""
-    days = max(1, min(int(days), 365))
+async def admin_summary(limit: int = 500, days: int = 7,
+                        start_date=None, end_date=None) -> Dict[str, Any]:
+    """管理看板：北京时间日期区间、上期对比、趋势及各维度汇总。"""
+    days = max(1, min(int(days), 3650))
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    end_date = end_date or today
+    start_date = start_date or (end_date - timedelta(days=days - 1))
+    if start_date > end_date:
+        raise ValueError("start_date must not be after end_date")
+    period_days = (end_date - start_date).days + 1
+    if period_days > 3650:
+        raise ValueError("date range must not exceed 3650 days")
+    previous_end = start_date - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=period_days - 1)
+    where = (
+        "created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai') AND "
+        "created_at < (($2::date + interval '1 day') AT TIME ZONE 'Asia/Shanghai')"
+    )
+    l_where = (
+        "l.created_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Shanghai') AND "
+        "l.created_at < (($2::date + interval '1 day') AT TIME ZONE 'Asia/Shanghai')"
+    )
     china = "lower(model) ~ '^(glm|kimi|qwen|deepseek|doubao|ernie|baichuan)'"
+    total = await db_util.fetchrow(
+        f"SELECT count(*) AS calls, coalesce(sum(total_tokens),0) AS tokens, "
+        f"coalesce(sum(cost_micro_usd),0) AS cost FROM ak_usage_logs WHERE {where}",
+        start_date, end_date,
+    )
+    previous_total = await db_util.fetchrow(
+        f"SELECT count(*) AS calls, coalesce(sum(total_tokens),0) AS tokens, "
+        f"coalesce(sum(cost_micro_usd),0) AS cost FROM ak_usage_logs WHERE {where}",
+        previous_start, previous_end,
+    )
     by_model = await db_util.fetch(
         "SELECT model, count(*) AS calls, sum(total_tokens) AS tokens, sum(cost_micro_usd) AS cost "
-        "FROM ak_usage_logs WHERE created_at >= now() - ($1::int * interval '1 day') "
+        f"FROM ak_usage_logs WHERE {where} "
         "GROUP BY model ORDER BY cost DESC NULLS LAST",
-        days,
+        start_date, end_date,
     )
     by_user = await db_util.fetch(
         "SELECT u.email, count(*) AS calls, sum(l.total_tokens) AS tokens, sum(l.cost_micro_usd) AS cost "
         "FROM ak_usage_logs l JOIN ak_users u ON u.id = l.user_id "
-        "WHERE l.created_at >= now() - ($1::int * interval '1 day') "
-        "GROUP BY u.email ORDER BY cost DESC NULLS LAST LIMIT $2",
-        days, limit,
+        f"WHERE {l_where} GROUP BY u.email ORDER BY cost DESC NULLS LAST LIMIT $3",
+        start_date, end_date, limit,
     )
     by_slot = await db_util.fetch(
         "SELECT slot_id, count(*) AS calls, sum(total_tokens) AS tokens, sum(cost_micro_usd) AS cost "
-        "FROM ak_usage_logs WHERE created_at >= now() - ($1::int * interval '1 day') "
+        f"FROM ak_usage_logs WHERE {where} "
         "GROUP BY slot_id ORDER BY cost DESC NULLS LAST",
-        days,
+        start_date, end_date,
     )
     daily = await db_util.fetch(
         "SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS day, count(*) AS calls, "
         "coalesce(sum(total_tokens), 0) AS tokens, "
         f"coalesce(sum(cost_micro_usd) FILTER (WHERE {china}), 0) AS china_cost, "
         f"coalesce(sum(cost_micro_usd) FILTER (WHERE NOT ({china})), 0) AS overseas_cost "
-        "FROM ak_usage_logs WHERE created_at >= now() - ($1::int * interval '1 day') "
+        f"FROM ak_usage_logs WHERE {where} "
         "GROUP BY day ORDER BY day DESC",
-        days,
+        start_date, end_date,
     )
+    daily_map = {row["day"]: dict(row) for row in daily}
+    daily_filled = []
+    previous_filled = []
+    previous_daily = await db_util.fetch(
+        "SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS day, count(*) AS calls, "
+        "coalesce(sum(total_tokens),0) AS tokens, coalesce(sum(cost_micro_usd),0) AS cost "
+        f"FROM ak_usage_logs WHERE {where} GROUP BY day ORDER BY day",
+        previous_start, previous_end,
+    )
+    previous_map = {row["day"]: dict(row) for row in previous_daily}
+    for offset in range(period_days):
+        day = start_date + timedelta(days=offset)
+        daily_filled.append(daily_map.get(day, {
+            "day": day, "calls": 0, "tokens": 0, "china_cost": 0, "overseas_cost": 0,
+        }))
+        previous_day = previous_start + timedelta(days=offset)
+        previous_filled.append(previous_map.get(previous_day, {
+            "day": previous_day, "calls": 0, "tokens": 0, "cost": 0,
+        }))
     return {
-        "days": days,
-        "daily": [dict(r) for r in daily],
+        "days": period_days,
+        "start_date": start_date,
+        "end_date": end_date,
+        "previous_start_date": previous_start,
+        "previous_end_date": previous_end,
+        "total": dict(total),
+        "previous_total": dict(previous_total),
+        "daily": daily_filled,
+        "previous_daily": previous_filled,
         "by_model": [dict(r) for r in by_model],
         "by_user": [dict(r) for r in by_user],
         "by_slot": [dict(r) for r in by_slot],
