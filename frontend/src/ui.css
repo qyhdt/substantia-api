@@ -179,6 +179,16 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ak-cost-track { height: 6px; overflow: hidden; background: var(--panel-2); border-radius: 999px; margin-top: 6px; }
 .ak-cost-track i { height: 100%; display: block; border-radius: inherit; background: linear-gradient(90deg, var(--accent), #14b8a6); }
 .ak-table-scroll { overflow-x: auto; }
+.moxing-terms-table { table-layout: fixed; min-width: 1040px; }
+.moxing-terms-table .moxing-term-model { width: 112px; }
+.moxing-terms-table .moxing-term-price { width: 132px; }
+.moxing-terms-table .moxing-term-discount { width: 142px; }
+.moxing-terms-table .moxing-term-action { width: 86px; }
+.moxing-terms-table th { line-height: 1.35; }
+.moxing-discount-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; white-space: nowrap; }
+.moxing-term-save { text-align: center !important; }
+.moxing-term-save .ak-btn { width: 100%; min-width: 0; white-space: nowrap; }
+.moxing-term-save small { display: block; margin: 5px 0 0; white-space: nowrap; font-size: 11px; }
 
 .ak-wallet-grid { display: grid; grid-template-columns: 1.35fr repeat(3, 1fr); gap: 12px; }
 

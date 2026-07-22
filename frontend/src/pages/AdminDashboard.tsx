@@ -876,9 +876,15 @@ function MoxingAccounting() {
         <Card title={t('moxing_terms_title')}>
           <p className="ak-muted" style={{ marginTop: 0 }}>{t('moxing_terms_desc')}</p>
           <div className="ak-table-scroll">
-            <table className="ak-table">
+            <table className="ak-table moxing-terms-table">
+              <colgroup>
+                <col className="moxing-term-model" />
+                <col span={4} className="moxing-term-price" />
+                <col span={2} className="moxing-term-discount" />
+                <col className="moxing-term-action" />
+              </colgroup>
               <thead><tr><th>{t('admin_col_model')}</th><th>{t('moxing_official_in')} ({currency === 'rmb' ? '¥/百万' : '$/百万'})</th><th>{t('moxing_official_out')} ({currency === 'rmb' ? '¥/百万' : '$/百万'})</th><th>{t('moxing_cache_read')} ({currency === 'rmb' ? '¥/百万' : '$/百万'})</th><th>{t('moxing_cache_write')} ({currency === 'rmb' ? '¥/百万' : '$/百万'})</th><th>{t('moxing_supplier_discount')}</th><th>{t('moxing_sale_discount')}</th><th></th></tr></thead>
-              <tbody>{(d.terms || []).map((term: any) => <MoxingTermRow key={term.model} term={term} currency={currency} rmbPerUsd={rate} onSaved={state.reload} />)}</tbody>
+              <tbody>{(d.terms || []).map((term: any) => <MoxingTermRow key={term.model} term={term} currency={currency} rmbPerUsd={rate} />)}</tbody>
             </table>
           </div>
         </Card>
@@ -930,8 +936,8 @@ function MoxingAccounting() {
   )
 }
 
-function MoxingTermRow({ term, currency, rmbPerUsd, onSaved }: {
-  term: any; currency: DisplayCurrency; rmbPerUsd: number; onSaved: () => void
+function MoxingTermRow({ term, currency, rmbPerUsd }: {
+  term: any; currency: DisplayCurrency; rmbPerUsd: number
 }) {
   const { t } = useI18n()
   const [form, setForm] = useState({
@@ -943,8 +949,9 @@ function MoxingTermRow({ term, currency, rmbPerUsd, onSaved }: {
     saleTenths: Number(term.sale_multiplier || 0) * 10,
   })
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   async function save() {
-    setSaving(true)
+    setSaving(true); setSaved(false)
     try {
       await admin.moxingTerms(term.model, {
         display_name: term.display_name,
@@ -955,22 +962,23 @@ function MoxingTermRow({ term, currency, rmbPerUsd, onSaved }: {
         supplier_multiplier: form.supplierTenths / 10,
         sale_multiplier: form.saleTenths / 10,
       })
-      onSaved()
+      setSaved(true)
     } finally { setSaving(false) }
   }
-  const input = (key: keyof typeof form, width = 90, isMoney = false) => {
+  const input = (key: keyof typeof form, isMoney = false) => {
     const factor = isMoney && currency === 'usd' ? 1 / rmbPerUsd : 1
     const displayed = form[key] * factor
     return <input className="ak-input" type="number" step={isMoney && currency === 'rmb' ? '1' : '0.01'} min="0"
       value={isMoney && currency === 'rmb' ? Math.round(displayed) : Number(displayed.toFixed(6))}
-      style={{ width }}
-      onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) / factor })} />
+      style={{ width: '100%', minWidth: 0 }}
+      onChange={(e) => { setSaved(false); setForm({ ...form, [key]: Number(e.target.value) / factor }) }} />
   }
   return <tr>
     <td><b>{term.display_name || term.model}</b><div className="ak-mono ak-muted">{term.model}</div></td>
-    <td>{input('input', 110, true)}</td><td>{input('output', 110, true)}</td><td>{input('cacheRead', 110, true)}</td><td>{input('cacheWrite', 110, true)}</td>
-    <td>{input('supplierTenths', 75)} {t('moxing_tenths')}</td><td>{input('saleTenths', 75)} {t('moxing_tenths')}</td>
-    <td><button className="ak-btn primary" disabled={saving} onClick={save}>{saving ? t('submitting') : t('admin_save')}</button></td>
+    <td>{input('input', true)}</td><td>{input('output', true)}</td><td>{input('cacheRead', true)}</td><td>{input('cacheWrite', true)}</td>
+    <td><div className="moxing-discount-field">{input('supplierTenths')}<span>{t('moxing_tenths')}</span></div></td>
+    <td><div className="moxing-discount-field">{input('saleTenths')}<span>{t('moxing_tenths')}</span></div></td>
+    <td className="moxing-term-save"><button className="ak-btn primary" disabled={saving} onClick={save}>{saving ? t('submitting') : t('admin_save')}</button>{saved && <small className="ak-ok">{t('moxing_term_saved')}</small>}</td>
   </tr>
 }
 
