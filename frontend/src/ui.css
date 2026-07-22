@@ -186,11 +186,12 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ak-donut > div { grid-area: 1 / 1; position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
 .ak-donut b { font-size: 22px; }
 .ak-donut small { color: var(--muted); }
-.ak-donut-legend { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
-.ak-donut-legend > div { display: grid; grid-template-columns: 9px minmax(80px, 1fr) auto auto; align-items: center; gap: 8px; }
+.ak-donut-legend { display: flex; flex-direction: column; gap: 9px; min-width: 0; width: 100%; overflow: hidden; }
+.ak-donut-legend > div { display: grid; grid-template-columns: 9px minmax(0, 1fr) max-content max-content; align-items: center; gap: 8px; min-width: 0; }
 .ak-donut-legend i { width: 9px; height: 9px; border-radius: 50%; }
-.ak-donut-legend span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ak-donut-legend small { color: var(--muted); white-space: nowrap; }
+.ak-donut-legend span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ak-donut-legend b, .ak-donut-legend small { text-align: right; white-space: nowrap; }
+.ak-donut-legend small { color: var(--muted); }
 .ak-model-cost-list { display: flex; flex-direction: column; gap: 13px; }
 .ak-model-cost small { color: var(--muted); margin-left: 5px; }
 .ak-model-cost strong { font-size: 13px; }
