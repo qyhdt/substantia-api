@@ -54,7 +54,7 @@ export function fmtDisplayCurrency(
   microUsd: number | null | undefined,
   currency: DisplayCurrency,
   rmbPerUsd: number,
-  digits = 4,
+  digits = 2,
 ) {
   const usd = Number(microUsd || 0) / 1e6
   return currency === 'rmb'
