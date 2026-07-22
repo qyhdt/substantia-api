@@ -163,13 +163,22 @@ async def adjust_balance(user_id: int, delta_micro_usd: int) -> int:
     return int(new_bal) if new_bal is not None else 0
 
 
+async def set_full_model_access(user_id: int, enabled: bool) -> bool:
+    """设置全模型权限标签；人工充值审核和自助支付成功会自动开启，admin 也可手动纠正。"""
+    result = await db_util.execute(
+        "UPDATE ak_users SET full_model_access = $1 WHERE id = $2",
+        bool(enabled), user_id,
+    )
+    return result.endswith("1")
+
+
 async def list_users(limit: int = 200) -> List[Dict[str, Any]]:
     """用户列表。返回的 balance_micro_usd 是「有效余额」= 实付桶 + 有效试用桶，
     使前端看到的余额与门户 /portal/me 一致（注册送的 $20 进试用桶，曾被漏算成 $0）。"""
     from services.apikey.balance import effective_balance, trial_active
 
     rows = await db_util.fetch(
-        "SELECT id, email, role, status, balance_micro_usd, price_multiplier, "
+        "SELECT id, email, role, status, balance_micro_usd, price_multiplier, full_model_access, "
         "trial_micro_usd, trial_expires_at, trial_permanent, created_at "
         "FROM ak_users ORDER BY created_at DESC LIMIT $1",
         limit,
@@ -195,7 +204,7 @@ async def user_detail(user_id: int) -> Optional[Dict[str, Any]]:
     from services.apikey.balance import effective_balance, trial_active
 
     row = await db_util.fetchrow(
-        "SELECT id, email, role, status, balance_micro_usd, price_multiplier, "
+        "SELECT id, email, role, status, balance_micro_usd, price_multiplier, full_model_access, "
         "trial_micro_usd, trial_expires_at, trial_permanent, created_at "
         "FROM ak_users WHERE id = $1",
         user_id,

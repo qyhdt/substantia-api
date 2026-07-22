@@ -58,7 +58,8 @@ async def authenticate_key(request: Request) -> Dict[str, Any]:
         SELECT k.*, u.email AS user_email, u.role AS user_role,
                u.status AS user_status, u.balance_micro_usd AS user_balance,
                u.trial_micro_usd AS user_trial, u.trial_expires_at AS user_trial_expires_at,
-               u.trial_permanent AS user_trial_permanent
+               u.trial_permanent AS user_trial_permanent,
+               u.full_model_access AS user_full_model_access
         FROM ak_api_keys k
         JOIN ak_users u ON u.id = k.user_id
         WHERE k.key_hash = $1
@@ -89,5 +90,6 @@ async def authenticate_key(request: Request) -> Dict[str, Any]:
         "trial_micro_usd": key["user_trial"],
         "trial_expires_at": key["user_trial_expires_at"],
         "trial_permanent": key["user_trial_permanent"],
+        "full_model_access": bool(key["user_full_model_access"]),
     }
     return {"key": key, "user": user}

@@ -206,8 +206,15 @@
 ### A6 · 加固（待办，P2）
 - [ ] 限流（`rate_limit_rpm` 已建字段，未接执行）、并发闸、注册/申请防刷
 - [ ] usage 高频写改 Redis 缓冲批量落库（当前同步写）
-- [ ] OpenAI 兼容端点 `/v1/chat/completions`（P2，LiteLLM）
+- [x] OpenAI 兼容端点 `/v1/chat/completions`（直连墨行 GLM/Kimi，保留订阅与 Gemini 兜底）
 - [ ] 多轮 messages→单 prompt 目前为摊平，富对话场景可优化
+
+### A7 · GLM/Kimi 路由与用户分层（✅ 完成）
+- [x] 墨行直连 `glm-5.2` / `kimi-k3`，同时支持 Anthropic Messages 与 OpenAI Chat Completions
+- [x] 免费及赠送余额用户强制路由 `glm-5.2`；已确认真实充值用户打 `full_model_access` 标签后可用全部模型
+- [x] 人工充值审核、Polar 与迅虎支付成功时自动授予全模型权限；管理端支持查看与调整标签
+- [x] Claude 与 GLM 首页按官网价 8 折展示；Kimi K3 按官网原价展示并提示资源短缺
+- [x] 保留现有 subscription → 墨行 → Gemini 故障转移链路，并为墨行直连补齐流式响应与精确计费
 
 ---
 
@@ -256,6 +263,7 @@
 ---
 
 ## 11. 变更记录（changelog）
+- **2026-07-22** · **GLM/Kimi 接入、定价与用户权限分层**。新增墨行 `glm-5.2` / `kimi-k3` 直连，兼容 `/v1/messages` 与 `/v1/chat/completions`，且保留原 subscription → 墨行 → Gemini 兜底链。新增 `full_model_access` 用户标签：免费及赠送余额用户无论请求何模型都强制走 GLM 5.2；人工充值审核或线上支付成功后自动开放全部模型，管理端可查看和调整。migration `0017` 将 Claude 改为官网价 8 折，`0018` 增加并回填全模型权限，`0019` 增加 GLM/Kimi 定价。首页同步展示 GLM 5.2 官网价 8 折与 Kimi K3 原价/资源短缺说明，控制台补齐模型选择与价格。
 - **2026-06-27** · **远端上线 + 端到端联调通过**。在 `8.216.44.14` 用 `devops/deploy` 的 docker-compose 起 db+backend+web 三容器（backend 以 root 挂 docker.sock + 同路径挂 `/var/lib/substantia/claude`，故能 exec 兄弟容器 `claude-slot-sub-a`）。真实跑通 `/v1/messages`→docker exec→真 Opus 4.8→计费扣款。**计费修复**：`runner` 改为从 `claude --output-format json` 的 `modelUsage` 解析**实际命中模型**（`claude-opus-4-8`）作为计价依据（订阅档实际模型 ≠ 请求别名）；新增 `_cli_model` 把规范名/别名归一成 CLI 认的 `opus/sonnet/haiku`；migration `0002` 补真实模型名定价。验证：一次 pong（in 21122 / out 4 token）精确扣 317130 micro=$0.317。**遗留**：edge-nginx 域名反代、cache_read token 单独低价、限流执行、OpenAI 兼容（P2）。
 - **2026-06-27** · **实现完成（后端+前端）**。发现容器团队已落地 `services/claude/*` 引擎 + `controller/claude.py`，遂重定边界：删掉自建 `ak_credentials/ak_containers`，slot 即上游凭据，本系统消费引擎。落地：migration（5 表）、`security/api_key_auth`、`services/apikey/{__init__,pricing,users,keys,topups,usage,runner}`、`controller/{auth,portal,admin_apikey,gateway}`、前端（api 客户端 + Login + User/Admin 仪表盘 + ui.css）。`runner.py` 跑 `claude --output-format json` 拿 token 计费；sub→apikey = slot 池故障转移；统一 `_safe_uid` 路由一致。测试 32 绿（10 单测 + 3 e2e + 容器团队 19），真实 uvicorn cookie 鉴权冒烟通过。**遗留**：真实 slot 镜像联调、限流执行、usage 批量写、OpenAI 兼容（均 A6/P2）。
 - **2026-06-27** · 用户拍板剩余 4 项：计费=token 且**逐模型定价**（新增 `ak_model_prices`，按命中模型计价，降级后按实际模型价）；**自助注册**；**注册自动送 $20 余额**（改用户 `balance` 模型，原"申请单"改为 `ak_topup_requests` 充值申请走 admin 审核）；**按 user_id 路由**。同步 §3 表结构、§4 计费步、§5 增 `/auth/*` 与 `/admin/model-prices`、§6/§7/§10。设计确认(A0)完成，待容器团队对齐 exec 细节后进 A1。

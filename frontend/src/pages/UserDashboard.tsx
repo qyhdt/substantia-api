@@ -15,6 +15,8 @@ const MODELS = [
   { id: 'claude-fable-5', label: 'Fable 5', cursorName: 'fable5' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5', cursorName: 'sonnet5' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', cursorName: 'haiku4.5' },
+  { id: 'glm-5.2', label: 'GLM 5.2', cursorName: 'glm-5.2' },
+  { id: 'kimi-k3', label: 'Kimi K3', cursorName: 'kimi-k3' },
 ] as const
 type ModelInfo = (typeof MODELS)[number]
 
@@ -382,25 +384,26 @@ function Usage() {
 }
 
 // 控制台展示的当前主推模型（与首页价格表一致，过滤掉旧版/重复/非 Claude 模型）。
-const PRICE_MODELS = [
-  'claude-opus-4-8',
-  'claude-sonnet-5',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5',
-  'claude-fable-5',
+const PRICE_MODELS: Array<{ id: string; multiplier: number; noteKey?: TKey }> = [
+  { id: 'claude-opus-4-8', multiplier: 0.8 },
+  { id: 'claude-sonnet-5', multiplier: 0.8 },
+  { id: 'claude-sonnet-4-6', multiplier: 0.8 },
+  { id: 'claude-haiku-4-5', multiplier: 0.8 },
+  { id: 'claude-fable-5', multiplier: 0.8 },
+  { id: 'glm-5.2', multiplier: 0.8, noteKey: 'pricing_glm_note' },
+  { id: 'kimi-k3', multiplier: 1, noteKey: 'pricing_kimi_note' },
 ]
 
 function Prices() {
   const { t } = useI18n()
   const state = useAsync(() => portal.prices(), [])
-  // 库里存的是 micro-USD / 1k token（已是官网价 5 折）；换算成 $ / 百万 token：micro_per_1k / 1000。
+  // 库里存的是 micro-USD / 1k token（已是实付价）；换算成 $ / 百万 token：micro_per_1k / 1000。
   const now = (v: any) => Number(v || 0) / 1000
-  // 官网价 = 实付 × 2（全站 5 折），展示划线原价 + 加粗实付，让优惠一目了然（同首页）。
-  const PriceCell = ({ micro }: { micro: any }) => {
+  const PriceCell = ({ micro, multiplier }: { micro: any; multiplier: number }) => {
     const n = now(micro)
     return (
       <span>
-        <span className="lp-off">{t('pricing_official')} ${(n * 2).toFixed(2)}</span>{' '}
+        {multiplier < 1 && <><span className="lp-off">{t('pricing_official')} ${(n / multiplier).toFixed(2)}</span>{' '}</>}
         <b className="lp-now">${n.toFixed(2)}</b>
       </span>
     )
@@ -410,7 +413,10 @@ function Prices() {
       <p className="ak-muted" style={{ marginTop: 0 }}>{t('prices_note')}</p>
       <Async state={state}>{(rows: any[]) => {
         const byId: Record<string, any> = Object.fromEntries(rows.map((r) => [r.model, r]))
-        const list = PRICE_MODELS.map((m) => byId[m]).filter(Boolean)
+        const list = PRICE_MODELS.map((meta) => {
+          const row = byId[meta.id]
+          return row ? { ...row, priceMeta: meta } : null
+        }).filter(Boolean) as any[]
         return (
           <table className="ak-table">
             <thead><tr>
@@ -426,9 +432,10 @@ function Prices() {
                   <td>
                     <b>{r.display_name || r.model}</b>
                     <div className="ak-mono ak-muted" style={{ fontSize: 12 }}>{r.model}</div>
+                    {r.priceMeta.noteKey && <div className="ak-muted" style={{ fontSize: 11 }}>{t(r.priceMeta.noteKey)}</div>}
                   </td>
-                  <td><PriceCell micro={r.input_micro_usd_per_1k} /></td>
-                  <td><PriceCell micro={r.output_micro_usd_per_1k} /></td>
+                  <td><PriceCell micro={r.input_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} /></td>
+                  <td><PriceCell micro={r.output_micro_usd_per_1k} multiplier={r.priceMeta.multiplier} /></td>
                   <td className="ak-muted">${now(r.cache_read_micro_usd_per_1k).toFixed(2)}</td>
                   <td className="ak-muted">${now(r.cache_write_micro_usd_per_1k).toFixed(2)}</td>
                 </tr>

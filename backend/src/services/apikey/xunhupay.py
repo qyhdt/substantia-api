@@ -143,6 +143,7 @@ async def handle_notify(params: dict) -> str:
 
     bonus = recharge_bonus_micro(int(amount))
     new_bal = await users_svc.adjust_balance(int(row["user_id"]), int(amount) + bonus)
+    await users_svc.set_full_model_access(int(row["user_id"]), True)
 
     # 充值达标且试用仍有效 → 把剩余试用额度转为永久有效（按实付额判定，不含赠送）
     if int(amount) >= settings.AK_TRIAL_ACTIVATE_MIN_MICRO_USD:

@@ -177,6 +177,7 @@ async def handle_webhook(headers, raw: bytes) -> dict:
     # 实付 + 阶梯赠送，一并加进永久余额（赠送基于实付额，不含上一次的赠送）
     bonus = recharge_bonus_micro(int(amount))
     new_bal = await users_svc.adjust_balance(int(row["user_id"]), int(amount) + bonus)
+    await users_svc.set_full_model_access(int(row["user_id"]), True)
 
     # 充值达标且试用仍在有效期内 → 把剩余试用额度转为永久有效（按实付额判定，不含赠送）
     if int(amount) >= settings.AK_TRIAL_ACTIVATE_MIN_MICRO_USD:
