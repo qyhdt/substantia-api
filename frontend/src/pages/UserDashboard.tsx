@@ -53,6 +53,129 @@ claude`
 const cliSettingsSnippet = (k: string, model: string) =>
   `claude --settings '{"env":{"ANTHROPIC_BASE_URL":"${CLI_BASE_URL}","ANTHROPIC_AUTH_TOKEN":"${k}","ANTHROPIC_MODEL":"${model}"}}'`
 
+type CodeLang = 'python' | 'java' | 'nodejs' | 'go' | 'php'
+const CODE_LANGS: Array<{ id: CodeLang; label: string; file: string }> = [
+  { id: 'python', label: 'Python', file: 'example.py' },
+  { id: 'java', label: 'Java', file: 'Main.java' },
+  { id: 'nodejs', label: 'Node.js', file: 'example.js' },
+  { id: 'go', label: 'Go', file: 'main.go' },
+  { id: 'php', label: 'PHP', file: 'example.php' },
+]
+
+function codeSnippet(lang: CodeLang, key: string, model: string): string {
+  const url = `https://${BRAND.apiHost}/v1/chat/completions`
+  if (lang === 'python') return `# 保存为 example.py 后运行: python3 example.py
+import json
+import urllib.request
+
+payload = json.dumps({
+    "model": "${model}",
+    "messages": [{"role": "user", "content": "你好，请介绍一下你自己"}],
+}).encode("utf-8")
+
+request = urllib.request.Request(
+    "${url}",
+    data=payload,
+    headers={
+        "Authorization": "Bearer ${key}",
+        "Content-Type": "application/json",
+    },
+)
+
+with urllib.request.urlopen(request) as response:
+    data = json.load(response)
+print(data["choices"][0]["message"]["content"])`
+
+  if (lang === 'java') return `// 保存为 Main.java 后运行: java Main.java
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        String body = "{\\"model\\":\\"${model}\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"你好，请介绍一下你自己\\"}]}";
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("${url}"))
+            .header("Authorization", "Bearer ${key}")
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build();
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+            request, HttpResponse.BodyHandlers.ofString());
+        System.out.println(response.body());
+    }
+}`
+
+  if (lang === 'nodejs') return `// 保存为 example.js 后运行: node example.js（Node.js 18+）
+async function main() {
+  const response = await fetch("${url}", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer ${key}",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "${model}",
+      messages: [{ role: "user", content: "你好，请介绍一下你自己" }],
+    }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  const data = await response.json();
+  console.log(data.choices[0].message.content);
+}
+
+main().catch(console.error);`
+
+  if (lang === 'go') return `// 保存为 main.go 后运行: go run main.go
+package main
+
+import (
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+)
+
+func main() {
+    payload, _ := json.Marshal(map[string]any{
+        "model": "${model}",
+        "messages": []map[string]string{{"role": "user", "content": "你好，请介绍一下你自己"}},
+    })
+    req, _ := http.NewRequest("POST", "${url}", bytes.NewReader(payload))
+    req.Header.Set("Authorization", "Bearer ${key}")
+    req.Header.Set("Content-Type", "application/json")
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil { panic(err) }
+    defer resp.Body.Close()
+    body, _ := io.ReadAll(resp.Body)
+    fmt.Println(string(body))
+}`
+
+  return `<?php
+// 保存为 example.php 后运行: php example.php
+$payload = json_encode([
+    "model" => "${model}",
+    "messages" => [["role" => "user", "content" => "你好，请介绍一下你自己"]],
+], JSON_UNESCAPED_UNICODE);
+
+$curl = curl_init("${url}");
+curl_setopt_array($curl, [
+    CURLOPT_POST => true,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => [
+        "Authorization: Bearer ${key}",
+        "Content-Type: application/json",
+    ],
+    CURLOPT_POSTFIELDS => $payload,
+]);
+$response = curl_exec($curl);
+if ($response === false) { throw new Exception(curl_error($curl)); }
+curl_close($curl);
+echo $response, PHP_EOL;`
+}
+
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text)
@@ -144,6 +267,7 @@ function Keys({ justIssued }: { justIssued?: string }) {
   const [hint, setHint] = useState<string | null>(null)
   const [copiedBtn, setCopiedBtn] = useState<string | null>(null) // 哪个「一键复制」刚成功（按钮旁内联提示）
   const [model, setModel] = useState<ModelInfo>(MODELS[0])  // 示例展示用的模型
+  const [codeLang, setCodeLang] = useState<CodeLang>('python')
 
   useEffect(() => {
     const onPop = () => setKeySection(readParam('keytab', KEY_SECTIONS, 'manage') as KeySection)
@@ -302,6 +426,34 @@ function Keys({ justIssued }: { justIssued?: string }) {
       </>}
 
       {keySection === 'guide' && <>
+      <Card title={t('card_code_examples')}>
+        <p className="ak-muted" style={{ marginTop: 0 }}>{t('code_examples_desc')}</p>
+        <ModelPicker model={model} onPick={setModel} />
+        <div className="ak-row" style={{ gap: 6, marginBottom: 10 }}>
+          <span className="ak-muted" style={{ fontSize: 12 }}>{t('code_language')}</span>
+          {CODE_LANGS.map((lang) => (
+            <button key={lang.id} className={`ak-btn ${codeLang === lang.id ? 'primary' : ''}`}
+              style={{ fontSize: 12, padding: '4px 11px' }} onClick={() => setCodeLang(lang.id)}>
+              {lang.label}
+            </button>
+          ))}
+        </div>
+        <div className="ak-row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+          <span className="ak-muted" style={{ fontSize: 12 }}>
+            {CODE_LANGS.find((lang) => lang.id === codeLang)?.file}
+          </span>
+          <div className="ak-row" style={{ gap: 8 }}>
+            <CopyBtn text={codeSnippet(codeLang, '<你的 sk-key>', model.id)} label={t('copy_sample')} />
+            <button className="ak-btn primary"
+              onClick={() => copyWithKey((key) => codeSnippet(codeLang, key, model.id), t('card_code_examples'), `code-${codeLang}`)}>
+              {t('copy_real_key')}
+            </button>
+            {copiedBtn === `code-${codeLang}` && <span className="ak-ok" style={{ fontSize: 13 }}>✓ {t('copy_success')}</span>}
+          </div>
+        </div>
+        <pre className="ak-mono ak-code-example">{codeSnippet(codeLang, banner || '<你的 sk-key>', model.id)}</pre>
+      </Card>
+
       <Card title={t('card_cursor')}>
         <p className="ak-muted">{t('cursor_desc_1')}<b>{t('openai_compat')}</b>{t('cursor_desc_2')}<b>Chat</b>{t('cursor_desc_3')}<b>Agent</b>{t('cursor_desc_4')}</p>
         <ModelPicker model={model} onPick={setModel} />
