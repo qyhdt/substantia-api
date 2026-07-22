@@ -111,7 +111,12 @@ export const admin = {
   keyStatus: (id: number, status: string) => api.post(`/admin/keys/${id}/status?status=${status}`),
   prices: () => api.get('/admin/model-prices'),
   upsertPrice: (payload: any) => api.post('/admin/model-prices', payload),
-  usageSummary: (days = 7) => api.get(`/admin/usage/summary?days=${days}`),
+  usageSummary: (days = 7, start_date?: string, end_date?: string) => {
+    const q = new URLSearchParams({ days: String(days) })
+    if (start_date) q.set('start_date', start_date)
+    if (end_date) q.set('end_date', end_date)
+    return api.get(`/admin/usage/summary?${q}`)
+  },
   usageDetails: (params: { email?: string; start_date?: string; end_date?: string; limit?: number; offset?: number }) => {
     const q = new URLSearchParams()
     if (params.email) q.set('email', params.email)

@@ -128,6 +128,14 @@ def test_full_flow(client):
     assert details.json()["total"] == 1
     assert details.json()["items"][0]["email"] == "u1@example.com"
     assert details.json()["items"][0]["cache_read_tokens"] == 0
+    usage_day = details.json()["items"][0]["created_at"][:10]
+    dashboard = client.get(
+        f"/api/admin/usage/summary?start_date={usage_day}&end_date={usage_day}", headers=ah,
+    )
+    assert dashboard.status_code == 200, dashboard.text
+    assert dashboard.json()["total"]["calls"] == 1
+    assert len(dashboard.json()["daily"]) == 1
+    assert len(dashboard.json()["previous_daily"]) == 1
     assert client.get(
         "/api/admin/usage/details?start_date=2100-01-01&end_date=2000-01-01", headers=ah,
     ).status_code == 422

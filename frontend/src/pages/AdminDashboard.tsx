@@ -1001,33 +1001,85 @@ function MoxingTermRow({ term, currency, rmbPerUsd }: {
 function UsageBoard() {
   const { t } = useI18n()
   const [currency, setCurrency] = useDisplayCurrency()
-  const [days, setDays] = useState(7)
-  const state = useAsync(() => admin.usageSummary(days), [days])
+  const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+  const initialRange = (() => {
+    const end = new Date(); const start = new Date(end); start.setDate(end.getDate() - 6)
+    return { start: localDate(start), end: localDate(end) }
+  })()
+  const [draftRange, setDraftRange] = useState(initialRange)
+  const [range, setRange] = useState(initialRange)
+  const days = Math.max(1, Math.round((new Date(range.end).getTime() - new Date(range.start).getTime()) / 86400000) + 1)
+  const state = useAsync(() => admin.usageSummary(days, range.start, range.end), [range.start, range.end])
+  function quickRange(kind: '7d' | 'week' | 'month' | 'lastMonth') {
+    const today = new Date(); let start = new Date(today); let end = new Date(today)
+    if (kind === '7d') start.setDate(today.getDate() - 6)
+    if (kind === 'week') {
+      const weekday = today.getDay() || 7; start.setDate(today.getDate() - weekday + 1)
+    }
+    if (kind === 'month') start = new Date(today.getFullYear(), today.getMonth(), 1)
+    if (kind === 'lastMonth') {
+      start = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+      end = new Date(today.getFullYear(), today.getMonth(), 0)
+    }
+    const next = { start: localDate(start), end: localDate(end) }
+    setDraftRange(next); setRange(next)
+  }
   return (
     <Async state={state}>{(d: any) => (
       <>
-        <Card title={t('admin_daily_trend')} actions={
+        <Card title={t('admin_billing_overview')} actions={
           <div className="ak-row" style={{ gap: 6 }}>
             {(['rmb', 'usd'] as const).map((value) => (
               <button key={value} className={`ak-btn ${currency === value ? 'primary' : ''}`}
                 onClick={() => setCurrency(value)}>{value.toUpperCase()}</button>
             ))}
-            {[7, 30, 90].map((value) => (
-              <button key={value} className={`ak-btn ${days === value ? 'primary' : ''}`}
-                onClick={() => setDays(value)}>{t(`billing_days_${value}` as TKey)}</button>
-            ))}
           </div>
         }>
-          <p className="ak-muted" style={{ marginTop: 0 }}>{t('admin_daily_trend_note')}</p>
-          <DailySpendChart rows={d.daily || []} currency={currency} rmbPerUsd={Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)} />
+          <div className="ak-row admin-usage-range" style={{ flexWrap: 'wrap', marginBottom: 14 }}>
+            <label className="ak-muted">{t('admin_start_date')} <input className="ak-input" type="date" value={draftRange.start}
+              onChange={(e) => setDraftRange({ ...draftRange, start: e.target.value })} /></label>
+            <label className="ak-muted">{t('admin_end_date')} <input className="ak-input" type="date" value={draftRange.end}
+              onChange={(e) => setDraftRange({ ...draftRange, end: e.target.value })} /></label>
+            <button className="ak-btn primary" disabled={!draftRange.start || !draftRange.end || draftRange.start > draftRange.end}
+              onClick={() => setRange({ ...draftRange })}>{t('admin_search')}</button>
+            <button className="ak-btn" onClick={() => quickRange('7d')}>{t('billing_days_7')}</button>
+            <button className="ak-btn" onClick={() => quickRange('week')}>{t('admin_this_week')}</button>
+            <button className="ak-btn" onClick={() => quickRange('month')}>{t('admin_this_month')}</button>
+            <button className="ak-btn" onClick={() => quickRange('lastMonth')}>{t('admin_last_month')}</button>
+          </div>
+          {(() => {
+            const rate = Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)
+            const total = Number(d.total?.cost || 0)
+            const previous = Number(d.previous_total?.cost || 0)
+            const comparison = previous > 0 ? ((total - previous) / previous) * 100 : null
+            const peak = [...(d.daily || [])].sort((a: any, b: any) =>
+              (Number(b.china_cost || 0) + Number(b.overseas_cost || 0)) - (Number(a.china_cost || 0) + Number(a.overseas_cost || 0)))[0]
+            const peakCost = Number(peak?.china_cost || 0) + Number(peak?.overseas_cost || 0)
+            return <div className="ak-billing-stats">
+              <div className="ak-billing-stat featured"><span>{t('admin_period_spend')}</span><b>{fmtDisplayCurrency(total, currency, rate)}</b><small>{range.start} — {range.end}</small></div>
+              <div className="ak-billing-stat"><span>{t('admin_period_comparison')}</span><b>{comparison == null ? '—' : `${comparison >= 0 ? '+' : ''}${comparison.toFixed(1)}%`}</b><small>{t('admin_previous_period')} {fmtDisplayCurrency(previous, currency, rate)}</small></div>
+              <div className="ak-billing-stat"><span>{t('admin_daily_average')}</span><b>{fmtDisplayCurrency(total / Math.max(1, Number(d.days || days)), currency, rate)}</b><small>{t('admin_peak')} {fmtDisplayCurrency(peakCost, currency, rate)} · {String(peak?.day || '').slice(5, 10)}</small></div>
+              <div className="ak-billing-stat"><span>{t('billing_calls')}</span><b>{fmtCount(d.total?.calls)}</b><small>{fmtCount(d.total?.tokens)} tokens</small></div>
+            </div>
+          })()}
         </Card>
+
+        <Card title={t('admin_daily_trend')}>
+          <p className="ak-muted" style={{ marginTop: 0 }}>{t('admin_daily_trend_note')}</p>
+          <DailySpendChart rows={d.daily || []} previousRows={d.previous_daily || []} currency={currency} rmbPerUsd={Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)} />
+        </Card>
+
+        <div className="ak-billing-panels admin-distribution-panels">
+          <section><h4>{t('admin_model_distribution')}</h4><CostDistributionChart rows={d.by_model || []} labelKey="model" currency={currency} rmbPerUsd={Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)} /></section>
+          <section><h4>{t('admin_channel_distribution')}</h4><CostDistributionChart rows={d.by_slot || []} labelKey="slot_id" currency={currency} rmbPerUsd={Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)} /></section>
+        </div>
 
         <Card title={t('admin_daily_bill')}>
           <div className="ak-table-scroll">
             <table className="ak-table">
               <thead><tr><th>{t('billing_date')}</th><th>{t('billing_calls')}</th><th>tokens</th><th>{t('col_cost')} ({currency.toUpperCase()})</th></tr></thead>
               <tbody>
-                {(d.daily || []).map((row: any) => {
+                {[...(d.daily || [])].reverse().map((row: any) => {
                   const rate = Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)
                   return (
                     <tr key={String(row.day)}>
@@ -1106,12 +1158,15 @@ function AdminUsageDetails({ currency, rmbPerUsd }: { currency: DisplayCurrency;
   </Card>
 }
 
-function DailySpendChart({ rows, currency, rmbPerUsd }: { rows: any[]; currency: DisplayCurrency; rmbPerUsd: number }) {
+function DailySpendChart({ rows, previousRows, currency, rmbPerUsd }: { rows: any[]; previousRows: any[]; currency: DisplayCurrency; rmbPerUsd: number }) {
   const { t } = useI18n()
-  const data = [...rows].reverse().map((row) => ({
+  const data = rows.map((row) => ({
     day: String(row.day).slice(0, 10),
     microUsd: Number(row.china_cost || 0) + Number(row.overseas_cost || 0),
     value: ((Number(row.china_cost || 0) + Number(row.overseas_cost || 0)) / 1e6) * (currency === 'rmb' ? rmbPerUsd : 1),
+  }))
+  const previous = previousRows.map((row) => ({
+    value: (Number(row.cost || 0) / 1e6) * (currency === 'rmb' ? rmbPerUsd : 1),
   }))
   if (data.length === 0) return <p className="ak-muted">{t('admin_empty_data')}</p>
 
@@ -1123,16 +1178,18 @@ function DailySpendChart({ rows, currency, rmbPerUsd }: { rows: any[]; currency:
   const bottom = 42
   const plotWidth = width - left - right
   const plotHeight = height - top - bottom
-  const max = Math.max(0.01, ...data.map((row) => row.value))
+  const max = Math.max(0.01, ...data.map((row) => row.value), ...previous.map((row) => row.value))
   const xAt = (index: number) => left + (data.length === 1 ? plotWidth / 2 : index * plotWidth / (data.length - 1))
   const yAt = (value: number) => top + plotHeight - value / max * plotHeight
   const points = data.map((row, index) => `${xAt(index)},${yAt(row.value)}`).join(' ')
+  const previousPoints = previous.map((row, index) => `${xAt(index)},${yAt(row.value)}`).join(' ')
   const area = `${xAt(0)},${top + plotHeight} ${points} ${xAt(data.length - 1)},${top + plotHeight}`
   const labelEvery = Math.max(1, Math.ceil(data.length / 7))
   const symbol = currency === 'rmb' ? '¥' : '$'
 
   return (
     <div className="ak-admin-chart">
+      <div className="ak-chart-legend"><span><i className="current" />{t('admin_current_period')}</span><span><i className="previous" />{t('admin_previous_period')}</span></div>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('admin_daily_trend')}>
         {[0, 0.5, 1].map((ratio) => {
           const y = top + plotHeight * ratio
@@ -1143,6 +1200,7 @@ function DailySpendChart({ rows, currency, rmbPerUsd }: { rows: any[]; currency:
           </g>
         })}
         <polygon points={area} className="ak-chart-area" />
+        {previousPoints && <polyline points={previousPoints} className="ak-chart-line previous" />}
         <polyline points={points} className="ak-chart-line" />
         {data.map((row, index) => (
           <g key={row.day}>
@@ -1154,6 +1212,30 @@ function DailySpendChart({ rows, currency, rmbPerUsd }: { rows: any[]; currency:
       </svg>
     </div>
   )
+}
+
+function CostDistributionChart({ rows, labelKey, currency, rmbPerUsd }: {
+  rows: any[]; labelKey: string; currency: DisplayCurrency; rmbPerUsd: number
+}) {
+  const { t } = useI18n()
+  const palette = ['#fb7185', '#fb923c', '#fbbf24', '#60a5fa', '#34d399', '#a78bfa', '#22d3ee']
+  const ranked = [...rows].filter((row) => Number(row.cost || 0) > 0).sort((a, b) => Number(b.cost) - Number(a.cost))
+  const top = ranked.slice(0, 6)
+  if (ranked.length > 6) top.push({ [labelKey]: t('admin_other'), cost: ranked.slice(6).reduce((sum, row) => sum + Number(row.cost || 0), 0) })
+  const total = top.reduce((sum, row) => sum + Number(row.cost || 0), 0)
+  if (!total) return <p className="ak-muted">{t('admin_empty_data')}</p>
+  let cursor = 0
+  const stops = top.map((row, index) => {
+    const start = cursor; cursor += Number(row.cost || 0) / total * 100
+    return `${palette[index % palette.length]} ${start}% ${cursor}%`
+  }).join(', ')
+  return <div className="ak-donut-layout">
+    <div className="ak-donut" style={{ background: `conic-gradient(${stops})` }}><div><b>{fmtCount(top.length)}</b><small>{t('admin_categories')}</small></div></div>
+    <div className="ak-donut-legend">{top.map((row, index) => {
+      const percent = Number(row.cost || 0) / total * 100
+      return <div key={`${row[labelKey]}-${index}`}><i style={{ background: palette[index % palette.length] }} /><span className="ak-mono">{row[labelKey] || '—'}</span><b>{percent.toFixed(1)}%</b><small>{fmtDisplayCurrency(row.cost, currency, rmbPerUsd)}</small></div>
+    })}</div>
+  </div>
 }
 
 function Agg({ rows, keyCol, currency, rmbPerUsd = RMB_PER_USD_FALLBACK }: { rows: any[]; keyCol: string; currency: DisplayCurrency; rmbPerUsd?: number }) {
