@@ -249,10 +249,10 @@ class MoxingMoneyIn(BaseModel):
 
 class MoxingTermsIn(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=128)
-    official_input_usd_per_million: Decimal = Field(ge=0)
-    official_output_usd_per_million: Decimal = Field(ge=0)
-    official_cache_read_usd_per_million: Decimal = Field(ge=0)
-    official_cache_write_usd_per_million: Decimal = Field(ge=0)
+    official_input_cny_per_million: Decimal = Field(ge=0)
+    official_output_cny_per_million: Decimal = Field(ge=0)
+    official_cache_read_cny_per_million: Decimal = Field(ge=0)
+    official_cache_write_cny_per_million: Decimal = Field(ge=0)
     supplier_multiplier: Decimal = Field(ge=0, le=100)
     sale_multiplier: Decimal = Field(ge=0, le=100)
 
@@ -297,10 +297,10 @@ async def moxing_terms(model: str, payload: MoxingTermsIn, admin: dict = Depends
     try:
         return await moxing_acct.update_terms(
             model=model, display_name=payload.display_name,
-            official_input=payload.official_input_usd_per_million,
-            official_output=payload.official_output_usd_per_million,
-            official_cache_read=payload.official_cache_read_usd_per_million,
-            official_cache_write=payload.official_cache_write_usd_per_million,
+            official_input=payload.official_input_cny_per_million,
+            official_output=payload.official_output_cny_per_million,
+            official_cache_read=payload.official_cache_read_cny_per_million,
+            official_cache_write=payload.official_cache_write_cny_per_million,
             supplier_multiplier=payload.supplier_multiplier,
             sale_multiplier=payload.sale_multiplier,
             admin_id=int(admin["id"]),

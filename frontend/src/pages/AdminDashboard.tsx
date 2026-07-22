@@ -792,8 +792,9 @@ function MoxingAccounting() {
   const [msg, setMsg] = useState<string | null>(null)
 
   async function submitEntry() {
-    const amountUsd = Number(entry.amount)
-    const amount = currency === 'rmb' ? amountUsd * Number(state.data?.rmb_per_usd || RMB_PER_USD_FALLBACK) : amountUsd
+    const cny = Number(entry.amount)
+    const rate = Number(state.data?.rmb_per_usd || RMB_PER_USD_FALLBACK)
+    const amount = currency === 'rmb' ? cny : cny / rate
     if (!isFinite(amount) || amount === 0 || (entry.type === 'topup' && amount < 0)) return
     if (!confirm(t('moxing_entry_confirm'))) return
     setBusy(true); setMsg(null)
@@ -816,7 +817,9 @@ function MoxingAccounting() {
   return (
     <Async state={state}>{(d: any) => {
       const rate = Number(d.rmb_per_usd || RMB_PER_USD_FALLBACK)
-      const money = (value: any, digits = 2) => fmtDisplayCurrency(value, currency, rate, digits)
+      const money = (value: any, digits = 2) => currency === 'rmb'
+        ? `¥${(Number(value || 0) / 1_000_000).toFixed(digits)}`
+        : `$${(Number(value || 0) / 1_000_000 / rate).toFixed(digits)}`
       const account = d.account || {}
       const period = d.period || {}
       const totals = d.ledger_totals || {}
@@ -835,16 +838,16 @@ function MoxingAccounting() {
         }>
           <p className="ak-muted" style={{ marginTop: 0 }}>{t('moxing_reconcile_desc')}</p>
           <div className="ak-billing-stats">
-            <div className="ak-billing-stat featured"><span>{t('moxing_book_balance')}</span><b>{money(account.balance_micro_usd)}</b><small>{t('moxing_tracking_since')} {fmtTime(account.tracking_started_at)}</small></div>
+            <div className="ak-billing-stat featured"><span>{t('moxing_book_balance')}</span><b>{money(account.balance_micro_cny)}</b><small>{t('moxing_tracking_since')} {fmtTime(account.tracking_started_at)}</small></div>
             <div className="ak-billing-stat"><span>{t('moxing_total_topups')}</span><b>{money(totals.topups)}</b><small>{t('moxing_adjustments')} {money(totals.adjustments)}</small></div>
             <div className="ak-billing-stat"><span>{t('moxing_supplier_cost')}</span><b>{money(period.supplier_cost)}</b><small>{fmtCount(period.calls)} {t('billing_calls_unit')}</small></div>
             <div className="ak-billing-stat"><span>{t('moxing_sales')}</span><b>{money(period.sales)}</b><small>{t('moxing_paid_sales')} {money(period.paid_sales)} · {t('moxing_trial_sales')} {money(period.trial_sales)}</small></div>
-            <div className="ak-billing-stat"><span>{t('moxing_gross_profit')}</span><b>{money(period.gross_profit_micro_usd)}</b><small>{t('moxing_cash_contribution')} {money(period.cash_contribution_micro_usd)}</small></div>
+            <div className="ak-billing-stat"><span>{t('moxing_gross_profit')}</span><b>{money(period.gross_profit_micro_cny)}</b><small>{t('moxing_cash_contribution')} {money(period.cash_contribution_micro_cny)}</small></div>
           </div>
-          {(Number(totals.internal_variance_micro_usd || 0) !== 0 || Number(period.accounting_issue_calls || 0) > 0) &&
+          {(Number(totals.internal_variance_micro_cny || 0) !== 0 || Number(period.accounting_issue_calls || 0) > 0) &&
             <div className="ak-err" style={{ marginTop: 12 }}>
               {t('moxing_reconcile_warning')}
-              {Number(totals.internal_variance_micro_usd || 0) !== 0 ? ` · ${t('moxing_internal_variance')} ${money(totals.internal_variance_micro_usd)}` : ''}
+              {Number(totals.internal_variance_micro_cny || 0) !== 0 ? ` · ${t('moxing_internal_variance')} ${money(totals.internal_variance_micro_cny)}` : ''}
               {Number(period.accounting_issue_calls || 0) > 0 ? ` · ${t('moxing_unpriced')} ${period.accounting_issue_calls}` : ''}
             </div>}
         </Card>
@@ -856,9 +859,9 @@ function MoxingAccounting() {
                 <option value="adjustment">{t('moxing_adjustment')}</option>
               </select>
               <input className="ak-input" type="number"
-                value={entry.amount === '' ? '' : Number((Number(entry.amount) * (currency === 'rmb' ? rate : 1)).toFixed(4))}
+                value={entry.amount === '' ? '' : Number((Number(entry.amount) / (currency === 'rmb' ? 1 : rate)).toFixed(4))}
                 placeholder={t('moxing_amount')}
-                onChange={(e) => setEntry({ ...entry, amount: e.target.value === '' ? '' : String(Number(e.target.value) / (currency === 'rmb' ? rate : 1)) })} />
+                onChange={(e) => setEntry({ ...entry, amount: e.target.value === '' ? '' : String(Number(e.target.value) * (currency === 'rmb' ? 1 : rate)) })} />
               <b>{currency === 'rmb' ? 'RMB' : 'USD'}</b>
               <input className="ak-input" value={entry.reference} placeholder={t('moxing_reference')}
                 onChange={(e) => setEntry({ ...entry, reference: e.target.value })} />
@@ -917,7 +920,7 @@ function MoxingAccounting() {
           <div className="ak-table-scroll"><table className="ak-table">
             <thead><tr><th>{t('admin_col_time')}</th><th>{t('admin_col_type')}</th><th>{t('admin_col_amount')}</th><th>{t('moxing_balance_after')}</th><th>{t('admin_col_model')}</th><th>{t('moxing_original_amount')}</th><th>{t('moxing_reference')}</th><th>{t('moxing_note')}</th></tr></thead>
             <tbody>{(d.ledger || []).map((row: any) => <tr key={row.id}>
-              <td className="ak-muted">{fmtTime(row.created_at)}</td><td>{row.entry_type}</td><td><b>{money(row.amount_micro_usd, 4)}</b></td><td>{money(row.balance_after_micro_usd, 4)}</td><td className="ak-mono">{row.model || '—'}</td>
+              <td className="ak-muted">{fmtTime(row.created_at)}</td><td>{row.entry_type}</td><td><b>{money(row.amount_micro_cny, 4)}</b></td><td>{money(row.balance_after_micro_cny, 4)}</td><td className="ak-mono">{row.model || '—'}</td>
               <td>{row.original_amount != null ? `${row.original_currency} ${row.original_amount}` : '—'}</td><td className="ak-mono">{row.reference || row.request_id || '—'}</td><td className="ak-muted">{row.note || '—'}</td>
             </tr>)}</tbody>
           </table></div>
@@ -932,10 +935,10 @@ function MoxingTermRow({ term, currency, rmbPerUsd, onSaved }: {
 }) {
   const { t } = useI18n()
   const [form, setForm] = useState({
-    input: Number(term.official_input_micro_usd_per_1k || 0) / 1000,
-    output: Number(term.official_output_micro_usd_per_1k || 0) / 1000,
-    cacheRead: Number(term.official_cache_read_micro_usd_per_1k || 0) / 1000,
-    cacheWrite: Number(term.official_cache_write_micro_usd_per_1k || 0) / 1000,
+    input: Number(term.official_input_micro_cny_per_million || 0) / 1_000_000,
+    output: Number(term.official_output_micro_cny_per_million || 0) / 1_000_000,
+    cacheRead: Number(term.official_cache_read_micro_cny_per_million || 0) / 1_000_000,
+    cacheWrite: Number(term.official_cache_write_micro_cny_per_million || 0) / 1_000_000,
     supplierTenths: Number(term.supplier_multiplier || 0) * 10,
     saleTenths: Number(term.sale_multiplier || 0) * 10,
   })
@@ -945,10 +948,10 @@ function MoxingTermRow({ term, currency, rmbPerUsd, onSaved }: {
     try {
       await admin.moxingTerms(term.model, {
         display_name: term.display_name,
-        official_input_usd_per_million: form.input,
-        official_output_usd_per_million: form.output,
-        official_cache_read_usd_per_million: form.cacheRead,
-        official_cache_write_usd_per_million: form.cacheWrite,
+        official_input_cny_per_million: form.input,
+        official_output_cny_per_million: form.output,
+        official_cache_read_cny_per_million: form.cacheRead,
+        official_cache_write_cny_per_million: form.cacheWrite,
         supplier_multiplier: form.supplierTenths / 10,
         sale_multiplier: form.saleTenths / 10,
       })
@@ -956,7 +959,7 @@ function MoxingTermRow({ term, currency, rmbPerUsd, onSaved }: {
     } finally { setSaving(false) }
   }
   const input = (key: keyof typeof form, width = 90, isMoney = false) => {
-    const factor = isMoney && currency === 'rmb' ? rmbPerUsd : 1
+    const factor = isMoney && currency === 'usd' ? 1 / rmbPerUsd : 1
     const displayed = form[key] * factor
     return <input className="ak-input" type="number" step={isMoney && currency === 'rmb' ? '1' : '0.01'} min="0"
       value={isMoney && currency === 'rmb' ? Math.round(displayed) : Number(displayed.toFixed(6))}

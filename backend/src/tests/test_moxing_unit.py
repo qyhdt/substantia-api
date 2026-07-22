@@ -60,20 +60,20 @@ def test_moxing_accounting_model_and_slot_detection():
     assert not accounting.is_moxing_slot("fallback-gemini")
 
 
-def test_moxing_supplier_cost_uses_official_price_and_business_discount():
+def test_kimi_k3_cost_matches_moxing_bill_exactly():
     term = {
-        "official_input_micro_usd_per_1k": 1400,
-        "official_output_micro_usd_per_1k": 4400,
-        "official_cache_read_micro_usd_per_1k": 260,
-        "official_cache_write_micro_usd_per_1k": 1400,
-        "supplier_multiplier": Decimal("0.9"),
+        "official_input_micro_cny_per_million": 20_000_000,
+        "official_output_micro_cny_per_million": 100_000_000,
+        "official_cache_read_micro_cny_per_million": 2_000_000,
+        "official_cache_write_micro_cny_per_million": 20_000_000,
+        "supplier_multiplier": Decimal("1"),
     }
     official, supplier = accounting.usage_cost(
-        term, prompt_tokens=1000, completion_tokens=100,
-        cache_read_tokens=500, cache_write_tokens=0,
+        term, prompt_tokens=524_513, completion_tokens=561,
+        cache_read_tokens=523_776, cache_write_tokens=0,
     )
-    assert official == 1400 + 440 + 130
-    assert supplier == 1773
+    assert official == 11_593_912
+    assert supplier == 11_593_912
 
 
 @pytest.mark.asyncio
@@ -85,16 +85,16 @@ async def test_moxing_request_posts_supplier_ledger_and_balance():
         async def fetchrow(self, query, *args):
             if "SELECT * FROM ak_supplier_model_terms" in query:
                 return {
-                    "official_input_micro_usd_per_1k": 1400,
-                    "official_output_micro_usd_per_1k": 4400,
-                    "official_cache_read_micro_usd_per_1k": 260,
-                    "official_cache_write_micro_usd_per_1k": 1400,
-                    "supplier_multiplier": Decimal("0.9"),
+                    "official_input_micro_cny_per_million": 20_000_000,
+                    "official_output_micro_cny_per_million": 100_000_000,
+                    "official_cache_read_micro_cny_per_million": 2_000_000,
+                    "official_cache_write_micro_cny_per_million": 20_000_000,
+                    "supplier_multiplier": Decimal("1"),
                 }
             if "SELECT sale_multiplier" in query:
                 return {"sale_multiplier": Decimal("0.8")}
-            if "SELECT balance_micro_usd" in query:
-                return {"balance_micro_usd": 10_000_000}
+            if "SELECT balance_micro_usd, balance_micro_cny" in query:
+                return {"balance_micro_usd": 10_000_000, "balance_micro_cny": 20_000_000}
             raise AssertionError(query)
 
         async def execute(self, query, *args):
@@ -104,16 +104,17 @@ async def test_moxing_request_posts_supplier_ledger_and_balance():
     conn = Conn()
     result = await accounting.record_usage(
         conn, usage_log_id=99, slot_id="direct-moxing", public_model="glm-5.2",
-        upstream_model="glm-5.2", prompt_tokens=1000, completion_tokens=100,
-        cache_read_tokens=0, cache_write_tokens=0, request_id="req-1", user_multiplier=1,
-        request_status="ok",
+        upstream_model="kimi-k3", prompt_tokens=524_513, completion_tokens=561,
+        cache_read_tokens=523_776, cache_write_tokens=0, request_id="req-1", user_multiplier=1,
+        request_status="ok", customer_cost_micro_usd=1_714_000,
+        charged_paid_micro_usd=1_714_000, billing_fx_rate=Decimal("6.7648"),
     )
-    assert result["official_cost_micro_usd"] == 1840
-    assert result["supplier_cost_micro_usd"] == 1656
-    assert result["supplier_balance_after_micro_usd"] == 9_998_344
+    assert result["official_cost_micro_cny"] == 11_593_912
+    assert result["supplier_cost_micro_cny"] == 11_593_912
+    assert result["supplier_balance_after_micro_cny"] == 8_406_088
     ledger = next(item for item in conn.executed if "INSERT INTO ak_supplier_ledger" in item[0])
-    assert ledger[1][1] == -1656
-    assert ledger[1][2] == 9_998_344
+    assert ledger[1][3] == -11_593_912
+    assert ledger[1][4] == 8_406_088
 
 
 @pytest.mark.asyncio
