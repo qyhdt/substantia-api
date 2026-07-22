@@ -189,6 +189,10 @@ table.ak-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .moxing-term-save { text-align: center !important; }
 .moxing-term-save .ak-btn { width: 100%; min-width: 0; white-space: nowrap; }
 .moxing-term-save small { display: block; margin: 5px 0 0; white-space: nowrap; font-size: 11px; }
+.model-price-table { min-width: 1180px; }
+.model-price-table th, .model-price-table td { white-space: nowrap; }
+.admin-usage-details-table { min-width: 1320px; }
+.admin-usage-details-table th, .admin-usage-details-table td { white-space: nowrap; }
 
 .ak-wallet-grid { display: grid; grid-template-columns: 1.35fr repeat(3, 1fr); gap: 12px; }
 

@@ -120,6 +120,26 @@ def test_full_flow(client):
     assert rows["items"][0]["cost_micro_usd"] == 2000
     assert rows["items"][0]["model"] == "test-model"
 
+    details = client.get(
+        "/api/admin/usage/details?email=u1%40example.com&start_date=2000-01-01&end_date=2100-01-01",
+        headers=ah,
+    )
+    assert details.status_code == 200, details.text
+    assert details.json()["total"] == 1
+    assert details.json()["items"][0]["email"] == "u1@example.com"
+    assert details.json()["items"][0]["cache_read_tokens"] == 0
+    assert client.get(
+        "/api/admin/usage/details?start_date=2100-01-01&end_date=2000-01-01", headers=ah,
+    ).status_code == 422
+    exported = client.get(
+        "/api/admin/usage/details/export?email=u1%40example.com&currency=RMB", headers=ah,
+    )
+    assert exported.status_code == 200, exported.text
+    assert exported.content[:2] == b"PK"
+    assert exported.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 
 def test_gateway_requires_key(client):
     # 官网价格无需登录，但绝不能暴露供应商商务折扣与成本。
@@ -198,6 +218,8 @@ def test_moxing_supplier_reconciliation_conserves_both_ledgers(client, monkeypat
     assert glm_price["official_input_micro_cny_per_million"] == 8_000_000
     assert "supplier" not in glm_price and "supplier_multiplier" not in glm_price
     usage_row = public_usage["items"][0]
+    assert usage_row["cache_read_tokens"] == 0
+    assert usage_row["cache_write_tokens"] == 0
     assert "supplier_cost_micro_usd" not in usage_row
     assert "upstream_model" not in usage_row
 

@@ -171,6 +171,7 @@ async def record_and_charge(
 async def usage_for_key(api_key_id: int, user_id: int, limit: int = 100) -> List[Dict[str, Any]]:
     rows = await db_util.fetch(
         "SELECT id, api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens, "
+        "cache_read_tokens, cache_write_tokens, "
         "total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id, created_at "
         "FROM ak_usage_logs WHERE api_key_id = $1 AND user_id = $2 "
         "ORDER BY created_at DESC LIMIT $3",
@@ -194,6 +195,7 @@ async def usage_for_user(
         )
         rows = await db_util.fetch(
             "SELECT id, api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens, "
+            "cache_read_tokens, cache_write_tokens, "
             "total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id, created_at "
             "FROM ak_usage_logs WHERE user_id = $1 "
             "AND created_at >= now() - ($2::int * interval '1 day') "
@@ -204,6 +206,7 @@ async def usage_for_user(
         total = await db_util.fetchval("SELECT count(*) FROM ak_usage_logs WHERE user_id = $1", user_id)
         rows = await db_util.fetch(
             "SELECT id, api_key_id, user_id, slot_id, model, prompt_tokens, completion_tokens, "
+            "cache_read_tokens, cache_write_tokens, "
             "total_tokens, cost_micro_usd, latency_ms, attempts, status, error_code, request_id, created_at "
             "FROM ak_usage_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             user_id, limit, offset,
@@ -281,6 +284,43 @@ async def user_spend_summary(user_id: int) -> Dict[str, Any]:
         "total_cost_micro_usd": int(total["cost"] or 0),
         "by_model": [dict(r) for r in by_model],
     }
+
+
+async def admin_usage_details(*, email: str | None = None, start_date=None, end_date=None,
+                              limit: int = 50, offset: int = 0, export: bool = False) -> Dict[str, Any]:
+    """全站调用明细；邮箱模糊搜索，日期按北京时间闭区间筛选。"""
+    limit = max(1, min(int(limit), 100_000 if export else 200))
+    offset = max(0, int(offset))
+    conditions: list[str] = []
+    args: list[Any] = []
+
+    def bind(value: Any) -> str:
+        args.append(value)
+        return f"${len(args)}"
+
+    if email and email.strip():
+        conditions.append(f"u.email ILIKE {bind('%' + email.strip() + '%')}")
+    if start_date is not None:
+        conditions.append(f"l.created_at >= ({bind(start_date)}::date AT TIME ZONE 'Asia/Shanghai')")
+    if end_date is not None:
+        conditions.append(
+            f"l.created_at < (({bind(end_date)}::date + interval '1 day') AT TIME ZONE 'Asia/Shanghai')"
+        )
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    total = await db_util.fetchval(
+        f"SELECT count(*) FROM ak_usage_logs l JOIN ak_users u ON u.id=l.user_id {where}", *args,
+    )
+    limit_ref = bind(limit)
+    offset_ref = bind(offset)
+    rows = await db_util.fetch(
+        "SELECT l.id, l.created_at, u.email, l.request_id, l.model, l.slot_id, "
+        "l.prompt_tokens, l.completion_tokens, l.cache_read_tokens, l.cache_write_tokens, "
+        "l.total_tokens, l.cost_micro_usd, l.status, l.error_code "
+        f"FROM ak_usage_logs l JOIN ak_users u ON u.id=l.user_id {where} "
+        f"ORDER BY l.created_at DESC LIMIT {limit_ref} OFFSET {offset_ref}",
+        *args,
+    )
+    return {"items": [dict(row) for row in rows], "total": int(total or 0)}
 
 
 async def admin_summary(limit: int = 500, days: int = 7) -> Dict[str, Any]:

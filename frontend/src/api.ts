@@ -112,6 +112,21 @@ export const admin = {
   prices: () => api.get('/admin/model-prices'),
   upsertPrice: (payload: any) => api.post('/admin/model-prices', payload),
   usageSummary: (days = 7) => api.get(`/admin/usage/summary?days=${days}`),
+  usageDetails: (params: { email?: string; start_date?: string; end_date?: string; limit?: number; offset?: number }) => {
+    const q = new URLSearchParams()
+    if (params.email) q.set('email', params.email)
+    if (params.start_date) q.set('start_date', params.start_date)
+    if (params.end_date) q.set('end_date', params.end_date)
+    q.set('limit', String(params.limit || 50)); q.set('offset', String(params.offset || 0))
+    return api.get(`/admin/usage/details?${q}`)
+  },
+  usageExportUrl: (params: { email?: string; start_date?: string; end_date?: string; currency: string }) => {
+    const q = new URLSearchParams({ currency: params.currency })
+    if (params.email) q.set('email', params.email)
+    if (params.start_date) q.set('start_date', params.start_date)
+    if (params.end_date) q.set('end_date', params.end_date)
+    return `/api/admin/usage/details/export?${q}`
+  },
   moxingAccounting: (days = 30, limit = 100) => api.get(`/admin/moxing/accounting?days=${days}&limit=${limit}`),
   moxingTopup: (payload: any) => api.post('/admin/moxing/topups', payload),
   moxingAdjustment: (payload: any) => api.post('/admin/moxing/adjustments', payload),
